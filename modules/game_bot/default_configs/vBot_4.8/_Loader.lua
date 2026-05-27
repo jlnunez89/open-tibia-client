@@ -17,14 +17,16 @@ end
 -- libraries should be loaded first
 local luaFiles = {
   "main",
+  "hazard_fix",  -- patch DAT NotPathable flags for 7.7 hazards (before any pathfinding)
   "items",
   "vlib",
   "new_cavebot_lib",
   "configs", -- do not change this and above
+  "humanize",
   "extras",
   "cavebot",
   "playerlist",
-  "BotServer",
+  -- "BotServer", -- removed: requires external BotServer, not available on 7.7
   "alarms",
   "Conditions",
   "Equipper",
@@ -36,14 +38,15 @@ local luaFiles = {
   "ingame_editor",
   "Dropper",
   "Containers",
-  "quiver_manager",
-  "quiver_label",
+  -- "quiver_manager", -- removed: quivers not available on 7.7
+  -- "quiver_label", -- removed: quivers not available on 7.7
   "tools",
   "antiRs",
-  "depot_withdraw",
+  -- "depot_withdraw", -- removed: uses modern item IDs (shopping bag 21411)
   "eat_food",
+  "auto_light",
   "equip",
-  "exeta",
+  -- "exeta", -- removed: uses game_cooldown module (8.0+)
   "analyzer",
   "spy_level",
   "supplies",
@@ -51,7 +54,13 @@ local luaFiles = {
   "npc_talk",
   "xeno_menu",
   "hold_target",
-  "cavebot_control_panel"
+  "cavebot_control_panel",
+  "my_rune_maker",
+  "my_wanderer",
+  "scavenge_items",
+  "stack_items",
+  "bp_organizer",
+  "set_tactics"
 }
 
 for i, file in ipairs(luaFiles) do

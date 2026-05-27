@@ -11,10 +11,11 @@ context.maxmana = function() return context.player:getMaxMana() end
 context.hpmax = function() return context.player:getMaxHealth() end
 context.manamax = function() return context.player:getMaxMana() end
 
-context.cap = function() return context.player:getCapacity() end
-context.freecap = function() return context.player:getFreeCapacity() end
-context.maxcap = function() return context.player:getTotalCapacity() end
-context.capmax = function() return context.player:getTotalCapacity() end
+local function capScale() return g_game.getFeature(GameDoubleFreeCapacity) and 1 or 100 end
+context.cap = function() return context.player:getCapacity() * capScale() end
+context.freecap = function() return context.player:getFreeCapacity() * capScale() end
+context.maxcap = function() return context.player:getTotalCapacity() * capScale() end
+context.capmax = function() return context.player:getTotalCapacity() * capScale() end
   
 context.exp = function() return context.player:getExperience() end
 context.lvl = function() return context.player:getLevel() end
@@ -121,7 +122,25 @@ context.use = function(thing, subtype)
   end
 end
 context.usewith = function(thing, target, subtype)
-  if type(thing) == 'number' then  
+  if type(thing) == 'number' then
+    -- On pre-840 protocols, g_game.useInventoryItemWith sends hardcoded stackpos 0
+    -- which breaks the packet. Bypass it by finding the actual item object and using
+    -- g_game.useWith which sends the correct stackpos.
+    if not g_game.getFeature(GameDoubleFreeCapacity) then
+      local sub = (subtype == nil) and -1 or subtype
+      local item = g_game.findPlayerItem(thing, sub)
+      if item then
+        if target.isCreature and target:isCreature() then
+          return g_game.useWith(item, target, sub)
+        end
+        local tile = target.getTile and target:getTile()
+        local top = tile and tile:getTopUseThing()
+        if top then
+          return g_game.useWith(item, top, sub)
+        end
+        return g_game.useWith(item, target, sub)
+      end
+    end
     return g_game.useInventoryItemWith(thing, target, subtype)
   else
     return g_game.useWith(thing, target, subtype)

@@ -331,12 +331,15 @@ function onSoulChange(localPlayer, soul)
 end
 
 function onFreeCapacityChange(localPlayer, freeCapacity)
+  if not g_game.getFeature(GameDoubleFreeCapacity) then freeCapacity = freeCapacity * 100 end
   setSkillValue('capacity', freeCapacity)
   checkAlert('capacity', freeCapacity, localPlayer:getTotalCapacity(), 20)
 end
 
 function onTotalCapacityChange(localPlayer, totalCapacity)
-  checkAlert('capacity', localPlayer:getFreeCapacity(), totalCapacity, 20)
+  local freeCap = localPlayer:getFreeCapacity()
+  if not g_game.getFeature(GameDoubleFreeCapacity) then freeCap = freeCap * 100 end
+  checkAlert('capacity', freeCap, totalCapacity, 20)
 end
 
 function onStaminaChange(localPlayer, stamina)

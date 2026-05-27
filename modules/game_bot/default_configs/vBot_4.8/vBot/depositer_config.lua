@@ -2,6 +2,18 @@ setDefaultTab("Cave")
 local panelName = "specialDeposit"
 local depositerPanel
 
+-- safe item name lookup (getMarketData unavailable on 7.7x)
+local function getItemName(id)
+    local ok, item = pcall(Item.create, id)
+    if ok and item then
+        local ok2, data = pcall(function() return item:getMarketData() end)
+        if ok2 and data and data.name and data.name ~= "" then
+            return data.name
+        end
+    end
+    return "Item #" .. tostring(id)
+end
+
 UI.Button("Stashing Settings", function()  
     depositerPanel:show()
     depositerPanel:raise()
@@ -39,7 +51,7 @@ local function refreshEntries()
     depositerPanel.DepositerList:destroyChildren()
     for _, entry in ipairs(config.items) do
       local panel = g_ui.createWidget("StashItem", depositerPanel.DepositerList)
-      panel.name:setText(Item.create(entry.id):getMarketData().name)
+      panel.name:setText(getItemName(entry.id))
       for i, child in ipairs(panel:getChildren()) do
           if child:getId() ~= "slot" then
             child:setTooltip("Clear item or double click to remove entry.")
@@ -67,7 +79,7 @@ local function refreshEntries()
             end
             entry.id = id
             panel.item:setImageSource('')
-            panel.name:setText(Item.create(entry.id):getMarketData().name)
+            panel.name:setText(getItemName(entry.id))
             if entry.index == 0 then
                 local window = modules.client_textedit.show(panel.slot, {
                     title = "Set depot for "..panel.name:getText(), 
@@ -126,7 +138,7 @@ UI.Separator()
 UI.Label("Sell Exeptions")
 
 if type(storage.cavebotSell) ~= "table" then
-  storage.cavebotSell = {23544, 3081}
+  storage.cavebotSell = {3081}
 end
 
 local sellContainer = UI.Container(function(widget, items)

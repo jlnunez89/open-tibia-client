@@ -1,0 +1,67 @@
+SetTacticsWindow < MainWindow
+  !text: tr('Set Tactics')
+  size: 230 195
+  @onEscape: self:hide()
+
+  Label
+    anchors.top: parent.top
+    anchors.left: parent.left
+    margin-left: 5
+    text: Re-apply interval (seconds):
+
+  TextEdit
+    id: interval
+    anchors.top: prev.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 3
+    height: 20
+    text-align: center
+
+  Label
+    anchors.top: prev.bottom
+    anchors.left: parent.left
+    margin-top: 10
+    margin-left: 5
+    text: Fight stance:
+
+  ComboBox
+    id: fightStance
+    anchors.top: prev.top
+    anchors.left: prev.right
+    anchors.right: parent.right
+    margin-left: 8
+    height: 20
+
+  CheckBox
+    id: chaseOpponent
+    anchors.top: prev.bottom
+    anchors.left: parent.left
+    margin-top: 10
+    margin-left: 5
+    text: Chase opponent
+    width: 150
+
+  CheckBox
+    id: safeFight
+    anchors.top: prev.bottom
+    anchors.left: parent.left
+    margin-top: 5
+    margin-left: 5
+    text: Safe fight (no PvP)
+    width: 150
+
+  HorizontalSeparator
+    anchors.right: parent.right
+    anchors.left: parent.left
+    anchors.bottom: closeButton.top
+    margin-bottom: 8
+
+  Button
+    id: closeButton
+    !text: tr('Close')
+    font: cipsoftFont
+    anchors.right: parent.right
+    anchors.bottom: parent.bottom
+    size: 45 21
+    margin-right: 5

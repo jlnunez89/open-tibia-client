@@ -4,7 +4,6 @@ if type(storage[panelName]) ~= "table" then
     storage[panelName] = {
         enabled = false;
         height = 170,
-        purse = true;
         list = {
             {
                 value = "Main Backpack",
@@ -26,13 +25,6 @@ if type(storage[panelName]) ~= "table" then
                 item = 2871,
                 min = true,
                 items = { 3031, 3035, 3043 }
-            },
-            {
-                value = "Purse",
-                enabled = true,
-                item = 23396,
-                min = true,
-                items = {}
             },
         }
     }
@@ -241,20 +233,8 @@ ContListsWindow < MainWindow
     margin-bottom: 8
 
   CheckBox
-    id: purse
-    anchors.left: parent.left
-    anchors.bottom: parent.bottom
-    text: Open Purse
-    tooltip: Opens Store/Charm Purse
-    width: 85
-    height: 15
-    margin-top: 2
-    margin-left: 3
-    font: verdana-11px-rounded
-
-  CheckBox
     id: sort
-    anchors.left: prev.right
+    anchors.left: parent.left
     anchors.bottom: parent.bottom
     text: Sort Items
     tooltip: Sort items based on items widget
@@ -361,12 +341,6 @@ function reopenBackpacks()
     schedule(500, function()
         local delay = 200
 
-        if config.purse then
-            local item = getPurse()
-            if item then
-                use(item)
-            end
-        end
         for i=1,#lstBPs do
             schedule(delay, function()
                 openContainer(lstBPs[i])
@@ -416,12 +390,6 @@ if rootWidget then
     contListWindow.closeButton.onClick = function(widget)
         contListWindow:hide()
     end
-
-    contListWindow.purse.onClick = function(widget)
-        config.purse = not config.purse
-        contListWindow.purse:setChecked(config.purse)
-    end
-    contListWindow.purse:setChecked(config.purse)
 
     contListWindow.sort.onClick = function(widget)
         config.sort = not config.sort
@@ -599,7 +567,7 @@ local function properTable(t)
 end
 
 local mainLoop = macro(150, function(macro)
-    if not config.sort and not config.purse then return end
+    if not config.sort then return end
 
     local storageVal = config.list
     for _, entry in pairs(storageVal) do
@@ -623,7 +591,7 @@ local mainLoop = macro(150, function(macro)
                 end
             end
         end
-        -- keep open / purse 23396
+        -- keep open
         if config.forceOpen then
             local container = getContainerByItem(dId)
             if not container then
@@ -639,16 +607,6 @@ local mainLoop = macro(150, function(macro)
                     return g_game.open(cItem)
                 end
             end
-        end
-    end
-    if config.purse and config.forceOpen and not getContainerByItem(23396) then
-        return use(getPurse())
-    end
-    if config.lootBag and config.forceOpen and not getContainerByItem(23721) then
-        if findItem(23721) then
-            g_game.open(findItem(23721), getContainerByItem(23396))
-        else
-            return use(getPurse())
         end
     end
     macro:setOff()

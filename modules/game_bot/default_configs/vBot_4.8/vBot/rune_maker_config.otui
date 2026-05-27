@@ -1,0 +1,77 @@
+RuneMakerWindow < MainWindow
+  !text: tr('Rune Maker Setup')
+  size: 230 220
+  @onEscape: self:hide()
+
+  Label
+    anchors.top: parent.top
+    anchors.left: parent.left
+    margin-left: 5
+    text: Spell words:
+
+  TextEdit
+    id: spellWords
+    anchors.top: prev.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 3
+    height: 24
+    text-align: center
+
+  Label
+    anchors.top: prev.bottom
+    anchors.left: parent.left
+    margin-top: 8
+    margin-left: 5
+    text: Mana cost:
+
+  TextEdit
+    id: manaCost
+    anchors.top: prev.top
+    anchors.left: prev.right
+    margin-left: 8
+    width: 70
+    height: 24
+    text-align: center
+
+  Label
+    id: runeLabel
+    anchors.top: manaCost.bottom
+    anchors.left: parent.left
+    margin-top: 12
+    margin-left: 5
+    text: Spell rune:
+
+  BotItem
+    id: spellRune
+    anchors.verticalCenter: runeLabel.verticalCenter
+    anchors.left: runeLabel.right
+    margin-left: 8
+
+  Label
+    id: weaponLabel
+    anchors.top: runeLabel.top
+    anchors.left: parent.horizontalCenter
+    margin-left: 10
+    text: Weapon:
+
+  BotItem
+    id: weapon
+    anchors.verticalCenter: weaponLabel.verticalCenter
+    anchors.left: weaponLabel.right
+    margin-left: 8
+
+  HorizontalSeparator
+    anchors.right: parent.right
+    anchors.left: parent.left
+    anchors.bottom: closeButton.top
+    margin-bottom: 8
+
+  Button
+    id: closeButton
+    !text: tr('Close')
+    font: cipsoftFont
+    anchors.right: parent.right
+    anchors.bottom: parent.bottom
+    size: 45 21
+    margin-right: 5

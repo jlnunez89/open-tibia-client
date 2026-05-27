@@ -110,10 +110,11 @@ UI.Separator()
 --- add callback (optional)
 --- optionals should be addionaly sandboxed (if true then end)
 
-addItem("rope", "Rope Item", 9596, leftPanel, "This item will be used in various bot related scripts as default rope item.")
-addItem("shovel", "Shovel Item", 9596, leftPanel, "This item will be used in various bot related scripts as default shovel item.")
-addItem("machete", "Machete Item", 9596, leftPanel, "This item will be used in various bot related scripts as default machete item.")
-addItem("scythe", "Scythe Item", 9596, leftPanel, "This item will be used in various bot related scripts as default scythe item.")
+-- Tibia 7.72 default tool ids: rope=3003, shovel=3457, machete=3308, scythe=3453.
+addItem("rope", "Rope Item", 3003, leftPanel, "This item will be used in various bot related scripts as default rope item.")
+addItem("shovel", "Shovel Item", 3457, leftPanel, "This item will be used in various bot related scripts as default shovel item.")
+addItem("machete", "Machete Item", 3308, leftPanel, "This item will be used in various bot related scripts as default machete item.")
+addItem("scythe", "Scythe Item", 3453, leftPanel, "This item will be used in various bot related scripts as default scythe item.")
 addCheckBox("pathfinding", "CaveBot Pathfinding", true, leftPanel, "Cavebot will automatically search for first reachable waypoint after missing 10 goto's.")
 addScrollBar("talkDelay", "Global NPC Talk Delay", 0, 2000, 1000, leftPanel, "Breaks between each talk action in cavebot (time in miliseconds).")
 addScrollBar("looting", "Max Loot Distance", 0, 50, 40, leftPanel, "Every loot corpse futher than set distance (in sqm) will be ignored and forgotten.")
@@ -169,22 +170,19 @@ end
 
 addTextEdit("useAll", "Use All Hotkey", "space", rightPanel, "Set hotkey for universal actions - rope, shovel, scythe, use, open doors")
 if true then
-  local useId = { 34847, 1764, 21051, 30823, 6264, 5282, 20453, 20454, 20474, 11708, 11705, 
-                  6257, 6256, 2772, 27260, 2773, 1632, 1633, 1948, 435, 6252, 6253, 5007, 4911, 
-                  1629, 1630, 5108, 5107, 5281, 1968, 435, 1948, 5542, 31116, 31120, 30742, 31115, 
-                  31118, 20474, 5737, 5736, 5734, 5733, 31202, 31228, 31199, 31200, 33262, 30824, 
-                  5125, 5126, 5116, 5117, 8257, 8258, 8255, 8256, 5120, 30777, 30776, 23873, 23877,
-                  5736, 6264, 31262, 31130, 31129, 6250, 6249, 5122, 30049, 7131, 7132, 7727 }
-  local shovelId = { 606, 593, 867, 608 }
-  local ropeId = { 17238, 12202, 12935, 386, 421, 21966, 14238 }
-  local macheteId = { 2130, 3696 }
-  local scytheId = { 3653 }
+  -- Tibia 7.72 ids. Doors/ladders are too many to enumerate; useId covers
+  -- common interactables (levers + ladder up). Tile-feature ids are the ones
+  -- that actually accept the matching tool useWith().
+  local useId = { 1945, 1946, 1948 }       -- levers (down/up), ladder up
+  local shovelId = { 231, 351 }              -- sandy spot, small dirt pile
+  local ropeId = { 384, 386, 394 }           -- rope holes / grates
+  local macheteId = { 2782 }                 -- jungle grass
+  local scytheId = { 2739 }                  -- wheat
 
   setDefaultTab("Tools")
   -- script
   if settings.useAll and settings.useAll:len() > 0 then
     hotkey(settings.useAll, function()
-        if not modules.game_walking.wsadWalking then return end
         for _, tile in pairs(g_map.getTiles(posz())) do
             if distanceFromPlayer(tile:getPosition()) < 2 then
                 for _, item in pairs(tile:getItems()) do

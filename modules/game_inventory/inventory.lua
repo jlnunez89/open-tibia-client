@@ -461,6 +461,7 @@ end
 
 function onFreeCapacityChange(player, freeCapacity)
   if not freeCapacity then return end
+  if not g_game.getFeature(GameDoubleFreeCapacity) then freeCapacity = freeCapacity * 100 end
   if freeCapacity > 99 then
     freeCapacity = math.floor(freeCapacity * 10) / 10
   end
