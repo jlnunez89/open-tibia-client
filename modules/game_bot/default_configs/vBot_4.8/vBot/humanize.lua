@@ -16,7 +16,7 @@
 -- single UI tab. CaveBot/TargetBot integrations live in their own files and
 -- defensively guard `if humanize and humanize.enabled() then ...`.
 
-setDefaultTab("Humanize")
+setDefaultTab("Target")
 
 if type(storage.humanize) ~= "table" then
   storage.humanize = {}
@@ -142,72 +142,275 @@ end
 ------------------------------------------------------------------------------
 -- UI
 ------------------------------------------------------------------------------
-UI.Label("Anti-detection humanization")
+local ui = setupUI([[
+Panel
+  height: 19
 
-local enableBtn
-enableBtn = UI.Button(cfg.enabled and "Humanize: ON" or "Humanize: OFF", function(widget)
+  BotSwitch
+    id: title
+    anchors.top: parent.top
+    anchors.left: parent.left
+    text-align: center
+    width: 130
+    !text: tr('Humanize')
+
+  Button
+    id: edit
+    anchors.top: prev.top
+    anchors.left: prev.right
+    anchors.right: parent.right
+    margin-left: 3
+    height: 17
+    text: Edit
+]])
+
+local params = setupUI([[
+Panel
+  height: 360
+
+  Label
+    anchors.top: parent.top
+    anchors.left: parent.left
+    margin-top: 5
+    margin-left: 3
+    text: Preset:
+    width: 100
+    tooltip: One of Off / Light / Medium / Paranoid.
+
+  BotTextEdit
+    id: preset
+    anchors.top: prev.top
+    anchors.left: prev.right
+    margin-left: 3
+    margin-right: 3
+    width: 60
+
+  Label
+    anchors.top: prev.bottom
+    anchors.left: parent.left
+    margin-top: 6
+    margin-left: 3
+    text: Move jitter (ms):
+
+  BotTextEdit
+    id: moveJitterMin
+    anchors.top: prev.bottom
+    anchors.left: parent.left
+    margin-top: 2
+    margin-left: 3
+    width: 50
+
+  Label
+    anchors.verticalCenter: prev.verticalCenter
+    anchors.left: prev.right
+    margin-left: 4
+    text: to
+
+  BotTextEdit
+    id: moveJitterMax
+    anchors.verticalCenter: prev.verticalCenter
+    anchors.left: prev.right
+    margin-left: 4
+    width: 50
+
+  Label
+    anchors.top: moveJitterMin.bottom
+    anchors.left: parent.left
+    margin-top: 6
+    margin-left: 3
+    text: Attack start (ms):
+
+  BotTextEdit
+    id: attackStartMin
+    anchors.top: prev.bottom
+    anchors.left: parent.left
+    margin-top: 2
+    margin-left: 3
+    width: 50
+
+  Label
+    anchors.verticalCenter: prev.verticalCenter
+    anchors.left: prev.right
+    margin-left: 4
+    text: to
+
+  BotTextEdit
+    id: attackStartMax
+    anchors.verticalCenter: prev.verticalCenter
+    anchors.left: prev.right
+    margin-left: 4
+    width: 50
+
+  Label
+    anchors.top: attackStartMin.bottom
+    anchors.left: parent.left
+    margin-top: 6
+    margin-left: 3
+    text: Loot jitter (ms):
+
+  BotTextEdit
+    id: lootJitterMin
+    anchors.top: prev.bottom
+    anchors.left: parent.left
+    margin-top: 2
+    margin-left: 3
+    width: 50
+
+  Label
+    anchors.verticalCenter: prev.verticalCenter
+    anchors.left: prev.right
+    margin-left: 4
+    text: to
+
+  BotTextEdit
+    id: lootJitterMax
+    anchors.verticalCenter: prev.verticalCenter
+    anchors.left: prev.right
+    margin-left: 4
+    width: 50
+
+  Label
+    anchors.top: lootJitterMin.bottom
+    anchors.left: parent.left
+    margin-top: 6
+    margin-left: 3
+    text: Turn chance (%/sec):
+    width: 100
+
+  BotTextEdit
+    id: turnChancePct
+    anchors.top: prev.top
+    anchors.left: prev.right
+    margin-left: 3
+    margin-right: 3
+    width: 60
+
+  Label
+    anchors.top: prev.bottom
+    anchors.left: parent.left
+    margin-top: 5
+    margin-left: 3
+    text: Turn cooldown (ms):
+    width: 100
+
+  BotTextEdit
+    id: turnCooldownMs
+    anchors.top: prev.top
+    anchors.left: prev.right
+    margin-left: 3
+    margin-right: 3
+    width: 60
+
+  Label
+    anchors.top: prev.bottom
+    anchors.left: parent.left
+    margin-top: 6
+    margin-left: 3
+    text: Pause chance (%/sec):
+    width: 100
+
+  BotTextEdit
+    id: pauseChancePct
+    anchors.top: prev.top
+    anchors.left: prev.right
+    margin-left: 3
+    margin-right: 3
+    width: 60
+
+  Label
+    anchors.top: prev.bottom
+    anchors.left: parent.left
+    margin-top: 5
+    margin-left: 3
+    text: Pause cooldown (ms):
+    width: 100
+
+  BotTextEdit
+    id: pauseCooldownMs
+    anchors.top: prev.top
+    anchors.left: prev.right
+    margin-left: 3
+    margin-right: 3
+    width: 60
+
+  Label
+    anchors.top: prev.bottom
+    anchors.left: parent.left
+    margin-top: 6
+    margin-left: 3
+    text: Reposition >N attackers:
+    width: 100
+    tooltip: Trigger a reposition when more than N monsters are around the player.
+
+  BotTextEdit
+    id: maxAttackers
+    anchors.top: prev.top
+    anchors.left: prev.right
+    margin-left: 3
+    margin-right: 3
+    width: 60
+
+  Label
+    anchors.top: prev.bottom
+    anchors.left: parent.left
+    margin-top: 5
+    margin-left: 3
+    text: Reposition cooldown (ms):
+    width: 100
+
+  BotTextEdit
+    id: repositionCooldownMs
+    anchors.top: prev.top
+    anchors.left: prev.right
+    margin-left: 3
+    margin-right: 3
+    width: 60
+]])
+params:hide()
+
+local showParams = false
+ui.edit.onClick = function()
+  showParams = not showParams
+  if showParams then params:show() else params:hide() end
+end
+
+ui.title:setOn(cfg.enabled)
+ui.title.onClick = function()
   cfg.enabled = not cfg.enabled
-  widget:setText(cfg.enabled and "Humanize: ON" or "Humanize: OFF")
-end)
+  ui.title:setOn(cfg.enabled)
+end
 
-UI.Label("Preset (Off / Light / Medium / Paranoid):")
-UI.TextEdit(cfg.preset, function(widget, text)
-  -- Only accept known presets; silently keep last value otherwise.
+local function bindNumber(widget, getter, setter, lo, hi)
+  widget:setText(tostring(getter()))
+  widget.onTextChange = function(_, text)
+    local n = tonumber(text)
+    if not n then return end
+    if lo then n = math.max(lo, n) end
+    if hi then n = math.min(hi, n) end
+    setter(n)
+  end
+end
+
+params.preset:setText(cfg.preset)
+params.preset.onTextChange = function(_, text)
   if text == "Off" or text == "Light" or text == "Medium" or text == "Paranoid" then
     cfg.preset = text
   end
-end)
+end
 
-UI.Separator()
-UI.Label("Move jitter ms (min,max):")
-UI.TextEdit(tostring(cfg.moveJitterMin), function(widget, text)
-  local n = tonumber(text); if n then cfg.moveJitterMin = math.max(0, n) end
-end)
-UI.TextEdit(tostring(cfg.moveJitterMax), function(widget, text)
-  local n = tonumber(text); if n then cfg.moveJitterMax = math.max(0, n) end
-end)
+bindNumber(params.moveJitterMin,        function() return cfg.moveJitterMin        end, function(n) cfg.moveJitterMin        = n end, 0)
+bindNumber(params.moveJitterMax,        function() return cfg.moveJitterMax        end, function(n) cfg.moveJitterMax        = n end, 0)
+bindNumber(params.attackStartMin,       function() return cfg.attackStartMin       end, function(n) cfg.attackStartMin       = n end, 0)
+bindNumber(params.attackStartMax,       function() return cfg.attackStartMax       end, function(n) cfg.attackStartMax       = n end, 0)
+bindNumber(params.lootJitterMin,        function() return cfg.lootJitterMin        end, function(n) cfg.lootJitterMin        = n end, 0)
+bindNumber(params.lootJitterMax,        function() return cfg.lootJitterMax        end, function(n) cfg.lootJitterMax        = n end, 0)
+bindNumber(params.turnChancePct,        function() return cfg.turnChancePct        end, function(n) cfg.turnChancePct        = n end, 0, 100)
+bindNumber(params.turnCooldownMs,       function() return cfg.turnCooldownMs       end, function(n) cfg.turnCooldownMs       = n end, 0)
+bindNumber(params.pauseChancePct,       function() return cfg.pauseChancePct       end, function(n) cfg.pauseChancePct       = n end, 0, 100)
+bindNumber(params.pauseCooldownMs,      function() return cfg.pauseCooldownMs      end, function(n) cfg.pauseCooldownMs      = n end, 0)
+bindNumber(params.maxAttackers,         function() return cfg.maxAttackers         end, function(n) cfg.maxAttackers         = n end, 0)
+bindNumber(params.repositionCooldownMs, function() return cfg.repositionCooldownMs end, function(n) cfg.repositionCooldownMs = n end, 0)
 
-UI.Label("Attack start jitter ms (min,max):")
-UI.TextEdit(tostring(cfg.attackStartMin), function(widget, text)
-  local n = tonumber(text); if n then cfg.attackStartMin = math.max(0, n) end
-end)
-UI.TextEdit(tostring(cfg.attackStartMax), function(widget, text)
-  local n = tonumber(text); if n then cfg.attackStartMax = math.max(0, n) end
-end)
-
-UI.Label("Loot jitter ms (min,max):")
-UI.TextEdit(tostring(cfg.lootJitterMin), function(widget, text)
-  local n = tonumber(text); if n then cfg.lootJitterMin = math.max(0, n) end
-end)
-UI.TextEdit(tostring(cfg.lootJitterMax), function(widget, text)
-  local n = tonumber(text); if n then cfg.lootJitterMax = math.max(0, n) end
-end)
-
-UI.Label("Random turn chance %/sec & cooldown ms:")
-UI.TextEdit(tostring(cfg.turnChancePct), function(widget, text)
-  local n = tonumber(text); if n then cfg.turnChancePct = math.max(0, math.min(100, n)) end
-end)
-UI.TextEdit(tostring(cfg.turnCooldownMs), function(widget, text)
-  local n = tonumber(text); if n then cfg.turnCooldownMs = math.max(0, n) end
-end)
-
-UI.Label("Random pause chance %/sec & cooldown ms:")
-UI.TextEdit(tostring(cfg.pauseChancePct), function(widget, text)
-  local n = tonumber(text); if n then cfg.pauseChancePct = math.max(0, math.min(100, n)) end
-end)
-UI.TextEdit(tostring(cfg.pauseCooldownMs), function(widget, text)
-  local n = tonumber(text); if n then cfg.pauseCooldownMs = math.max(0, n) end
-end)
-
-UI.Label("Reposition when >N monsters around & cooldown ms:")
-UI.TextEdit(tostring(cfg.maxAttackers), function(widget, text)
-  local n = tonumber(text); if n then cfg.maxAttackers = math.max(0, n) end
-end)
-UI.TextEdit(tostring(cfg.repositionCooldownMs), function(widget, text)
-  local n = tonumber(text); if n then cfg.repositionCooldownMs = math.max(0, n) end
-end)
-
-UI.Separator()
 
 -- Self-driven idle tick: random turns and pauses don't need any external
 -- caller. Runs once per second when humanize is enabled.

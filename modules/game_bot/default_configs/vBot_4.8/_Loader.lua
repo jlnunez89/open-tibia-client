@@ -45,6 +45,7 @@ local luaFiles = {
   -- "depot_withdraw", -- removed: uses modern item IDs (shopping bag 21411)
   "eat_food",
   "auto_light",
+  "auto_fish",
   "equip",
   -- "exeta", -- removed: uses game_cooldown module (8.0+)
   "analyzer",

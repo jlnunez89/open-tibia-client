@@ -26,10 +26,6 @@ cfg.minRecastMs          = cfg.minRecastMs          or 5000
 if cfg.ignoreInPz == nil then cfg.ignoreInPz = true end
 
 UI.Label("Auto Light:")
-UI.Button(cfg.enabled and "Auto Light: ON" or "Auto Light: OFF", function(widget)
-  cfg.enabled = not cfg.enabled
-  widget:setText(cfg.enabled and "Auto Light: ON" or "Auto Light: OFF")
-end)
 UI.TextEdit(cfg.spell, function(widget, text)
   cfg.spell = text
 end)
@@ -47,8 +43,9 @@ local function getPlayerLight()
 end
 
 local lastCastAt = 0
-macro(1000, function()
-  if not cfg.enabled then return end
+-- Named macro: vBot renders a green ON / red OFF toggle button automatically
+-- (same UI treatment as "Eat Food").
+local autoLightMacro = macro(1000, "Auto Light", function()
   if cfg.ignoreInPz and isInPz() then return end
   if now - lastCastAt < cfg.minRecastMs then return end
   if mana() < cfg.manaCost then return end
@@ -58,5 +55,9 @@ macro(1000, function()
   say(cfg.spell)
   lastCastAt = now
 end)
+
+if cfg.enabled and autoLightMacro and autoLightMacro.setOn then
+  autoLightMacro.setOn(true)
+end
 
 UI.Separator()
