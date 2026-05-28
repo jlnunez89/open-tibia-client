@@ -4,6 +4,7 @@ PageButton < Button
 
 
 ContainerWindow < MiniWindow
+  width: 156
   height: 150
   &save: true
   &containerWindow: true

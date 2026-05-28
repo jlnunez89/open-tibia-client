@@ -65,7 +65,14 @@ for i, healingInfo in ipairs({storage.hpitem1, storage.hpitem2, storage.manaitem
         if thing and thing:isFluidContainer() then
           subType = healingInfo.subType
         end
-        g_game.useInventoryItemWith(healingInfo.item, player, subType)
+        if g_game.getClientVersion() < 840 then
+          local tmpItem = g_game.findPlayerItem(healingInfo.item, subType)
+          if tmpItem then
+            g_game.useWith(tmpItem, player, subType)
+          end
+        else
+          g_game.useInventoryItemWith(healingInfo.item, player, subType)
+        end
       end
     end
   end)

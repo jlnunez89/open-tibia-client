@@ -110,10 +110,11 @@ UI.Separator()
 --- add callback (optional)
 --- optionals should be addionaly sandboxed (if true then end)
 
-addItem("rope", "Rope Item", 9596, leftPanel, "This item will be used in various bot related scripts as default rope item.")
-addItem("shovel", "Shovel Item", 9596, leftPanel, "This item will be used in various bot related scripts as default shovel item.")
-addItem("machete", "Machete Item", 9596, leftPanel, "This item will be used in various bot related scripts as default machete item.")
-addItem("scythe", "Scythe Item", 9596, leftPanel, "This item will be used in various bot related scripts as default scythe item.")
+-- Tibia 7.72 default tool ids: rope=3003, shovel=3457, machete=3308, scythe=3453.
+addItem("rope", "Rope Item", 3003, leftPanel, "This item will be used in various bot related scripts as default rope item.")
+addItem("shovel", "Shovel Item", 3457, leftPanel, "This item will be used in various bot related scripts as default shovel item.")
+addItem("machete", "Machete Item", 3308, leftPanel, "This item will be used in various bot related scripts as default machete item.")
+addItem("scythe", "Scythe Item", 3453, leftPanel, "This item will be used in various bot related scripts as default scythe item.")
 addCheckBox("pathfinding", "CaveBot Pathfinding", true, leftPanel, "Cavebot will automatically search for first reachable waypoint after missing 10 goto's.")
 addScrollBar("talkDelay", "Global NPC Talk Delay", 0, 2000, 1000, leftPanel, "Breaks between each talk action in cavebot (time in miliseconds).")
 addScrollBar("looting", "Max Loot Distance", 0, 50, 40, leftPanel, "Every loot corpse futher than set distance (in sqm) will be ignored and forgotten.")
@@ -169,22 +170,19 @@ end
 
 addTextEdit("useAll", "Use All Hotkey", "space", rightPanel, "Set hotkey for universal actions - rope, shovel, scythe, use, open doors")
 if true then
-  local useId = { 34847, 1764, 21051, 30823, 6264, 5282, 20453, 20454, 20474, 11708, 11705, 
-                  6257, 6256, 2772, 27260, 2773, 1632, 1633, 1948, 435, 6252, 6253, 5007, 4911, 
-                  1629, 1630, 5108, 5107, 5281, 1968, 435, 1948, 5542, 31116, 31120, 30742, 31115, 
-                  31118, 20474, 5737, 5736, 5734, 5733, 31202, 31228, 31199, 31200, 33262, 30824, 
-                  5125, 5126, 5116, 5117, 8257, 8258, 8255, 8256, 5120, 30777, 30776, 23873, 23877,
-                  5736, 6264, 31262, 31130, 31129, 6250, 6249, 5122, 30049, 7131, 7132, 7727 }
-  local shovelId = { 606, 593, 867, 608 }
-  local ropeId = { 17238, 12202, 12935, 386, 421, 21966, 14238 }
-  local macheteId = { 2130, 3696 }
-  local scytheId = { 3653 }
+  -- Tibia 7.72 ids. Doors/ladders are too many to enumerate; useId covers
+  -- common interactables (levers + ladder up). Tile-feature ids are the ones
+  -- that actually accept the matching tool useWith().
+  local useId = { 1945, 1946, 1948 }       -- levers (down/up), ladder up
+  local shovelId = { 231, 351 }              -- sandy spot, small dirt pile
+  local ropeId = { 384, 386, 394 }           -- rope holes / grates
+  local macheteId = { 2782 }                 -- jungle grass
+  local scytheId = { 2739 }                  -- wheat
 
   setDefaultTab("Tools")
   -- script
   if settings.useAll and settings.useAll:len() > 0 then
     hotkey(settings.useAll, function()
-        if not modules.game_walking.wsadWalking then return end
         for _, tile in pairs(g_map.getTiles(posz())) do
             if distanceFromPlayer(tile:getPosition()) < 2 then
                 for _, item in pairs(tile:getItems()) do
@@ -263,64 +261,10 @@ if true then
 end
 
 
-addCheckBox("stake", "Skin Monsters", false, leftPanel, "Automatically skin & stake corpses when cavebot is enabled")
-if true then
-  local knifeBodies = {4286, 4272, 4173, 4011, 4025, 4047, 4052, 4057, 4062, 4112, 4212, 4321, 4324, 4327, 10352, 10356, 10360, 10364} 
-  local stakeBodies = {4097, 4137, 8738, 18958}
-  local fishingBodies = {9582}
-  macro(500, function()
-      if not CaveBot.isOn() or not settings.stake then return end
-      for i, tile in ipairs(g_map.getTiles(posz())) do
-        local item = tile:getTopThing()
-        if item and item:isContainer() then
-          if table.find(knifeBodies, item:getId()) and findItem(5908) then
-              CaveBot.delay(550)
-              useWith(5908, item)
-              return
-          end
-          if table.find(stakeBodies, item:getId()) and findItem(5942) then
-              CaveBot.delay(550)
-              useWith(5942, item)
-              return
-          end
-          if table.find(fishingBodies, item:getId()) and findItem(3483) then
-              CaveBot.delay(550)
-              useWith(3483, item)
-              return
-          end
-        end
-      end
-  end)
-end
+-- removed for 7.7: "Skin Monsters" (post-7.7 corpse ids / skinning mechanics)
 
 
-addCheckBox("oberon", "Auto Reply Oberon", true, rightPanel, "Auto reply to Grand Master Oberon talk minigame.")
-if true then
-  onTalk(function(name, level, mode, text, channelId, pos)
-    if not settings.oberon then return end
-    if mode == 34 then
-        if string.find(text, "world will suffer for") then
-            say("Are you ever going to fight or do you prefer talking?")
-        elseif string.find(text, "feet when they see me") then
-            say("Even before they smell your breath?")
-        elseif string.find(text, "from this plane") then
-            say("Too bad you barely exist at all!") 
-        elseif string.find(text, "ESDO LO") then
-            say("SEHWO ASIMO, TOLIDO ESD") 
-        elseif string.find(text, "will soon rule this world") then
-            say("Excuse me but I still do not get the message!") 
-        elseif string.find(text, "honourable and formidable") then
-            say("Then why are we fighting alone right now?") 
-        elseif string.find(text, "appear like a worm") then
-            say("How appropriate, you look like something worms already got the better of!") 
-        elseif string.find(text, "will be the end of mortal") then
-            say("Then let me show you the concept of mortality before it!") 
-        elseif string.find(text, "virtues of chivalry") then
-            say("Dare strike up a Minnesang and you will receive your last accolade!") 
-        end
-    end
-  end)
-end
+-- removed for 7.7: "Auto Reply Oberon" (Grand Master Oberon is post-7.7 content)
 
 
 addCheckBox("autoOpenDoors", "Auto Open Doors", true, rightPanel, "Open doors when trying to step on them.")
@@ -371,31 +315,7 @@ if true then
 end
 
 
-addCheckBox("bless", "Buy bless at login", true, rightPanel, "Say !bless at login.")
-if true then
-  local blessed = false
-  onTextMessage(function(mode,text) 
-    if not settings.bless then return end
-    
-    text = text:lower()
-
-    if text == "you already have all blessings." then
-      blessed = true
-    end
-  end)
-  if settings.bless then
-    if player:getBlessings() == 0 then
-      say("!bless")
-      schedule(2000, function() 
-          if g_game.getClientVersion() > 1000 then
-            if not blessed and player:getBlessings() == 0 then
-                warn("!! Blessings not bought !!")
-            end
-          end
-      end)
-    end
-  end
-end
+-- removed for 7.7: "Buy bless at login" (!bless command does not exist on 7.7)
 
 
 addCheckBox("reUse", "Keep Crosshair", false, rightPanel, "Keep crosshair after using with item")
@@ -427,101 +347,8 @@ if true then
   end)
 end
 
-addCheckBox("holdMwall", "Hold MW/WG", true, rightPanel, "Mark tiles with below hotkeys to automatically use Magic Wall or Wild Growth")
-addTextEdit("holdMwHot", "Magic Wall Hotkey: ", "F5", rightPanel)
-addTextEdit("holdWgHot", "Wild Growth Hotkey: ", "F6", rightPanel)
-if true then
-
-  local hold = 0
-  local mwHot
-  local wgHot
-
-  local candidates = {}
-  local m = macro(20, function()
-    mwHot = settings.holdMwHot
-    wgHot = settings.holdWgHot
-    
-    if not settings.holdMwall then return end
-      if #candidates == 0 then return end
-
-      for i, pos in pairs(candidates) do
-        local tile = g_map.getTile(pos)
-        if tile then
-          if tile:getText():len() == 0 then 
-            table.remove(candidates, i)
-          end
-          local rune = tile:getText() == "HOLD MW" and 3180 or tile:getText() == "HOLD WG" and 3156
-          if tile:canShoot() and not isInPz() and tile:isWalkable() and tile:getTopUseThing():getId() ~= 2130 then
-            if math.abs(player:getPosition().x-tile:getPosition().x) < 8 and math.abs(player:getPosition().y-tile:getPosition().y) < 6 then
-              return useWith(rune, tile:getTopUseThing())
-            end
-          end
-        end
-      end
-  end)
-
-  onRemoveThing(function(tile, thing)
-    if not settings.holdMwall then return end
-      if thing:getId() ~= 2129 then return end
-      if tile:getText():find("HOLD") then
-          table.insert(candidates, tile:getPosition())
-          local rune = tile:getText() == "HOLD MW" and 3180 or tile:getText() == "HOLD WG" and 3156
-          if math.abs(player:getPosition().x-tile:getPosition().x) < 8 and math.abs(player:getPosition().y-tile:getPosition().y) < 6 then
-            return useWith(rune, tile:getTopUseThing())
-          end
-      end
-  end)
-
-  onAddThing(function(tile, thing)
-    if not settings.holdMwall then return end
-      if m.isOff() then return end
-      if thing:getId() ~= 2129 then return end
-      if tile:getText():len() > 0 then
-          table.remove(candidates, table.find(candidates,tile))
-      end
-  end)
-
-  onKeyDown(function(keys)
-    local wsadWalking = modules.game_walking.wsadWalking
-    if not wsadWalking then return end
-    if not settings.holdMwall then return end
-    if m.isOff() then return end
-    if keys ~= mwHot and keys ~= wgHot then return end
-    hold = now
-
-    local tile = getTileUnderCursor()
-    if not tile then return end
-
-    if tile:getText():len() > 0 then
-        tile:setText("")
-    else
-        if keys == mwHot then
-            tile:setText("HOLD MW")
-        else
-            tile:setText("HOLD WG")
-        end
-        table.insert(candidates, tile:getPosition())
-    end
-  end)
-
-  onKeyPress(function(keys)
-    local wsadWalking = modules.game_walking.wsadWalking
-    if not wsadWalking then return end
-    if not settings.holdMwall then return end
-    if m.isOff() then return end
-    if keys ~= mwHot and keys ~= wgHot then return end
-
-    if (hold - now) < -1000 then
-      candidates = {}
-      for i, tile in ipairs(g_map.getTiles(posz())) do
-        local text = tile:getText()
-        if text:find("HOLD") then
-          tile:setText("")
-        end
-      end
-    end
-  end)
-end
+-- removed for 7.7: "Hold MW/WG" + Magic Wall / Wild Growth hotkeys
+-- (no marker rune support / WG (3156) is post-7.7).
 
 addCheckBox("checkPlayer", "Check Players", true, rightPanel, "Auto look on players and mark level and vocation on character model")
 if true then

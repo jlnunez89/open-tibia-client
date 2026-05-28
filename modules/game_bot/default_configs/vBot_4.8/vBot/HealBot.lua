@@ -543,9 +543,20 @@ if rootWidget then
 end
 
 -- spells
+-- Anti-detection: minimum gap between any spell cast attempt. Avoids the
+-- per-rule "spam exhausted" tell where the macro re-says the spell every
+-- 100ms until the server cooldown actually lands. 1s is enough that a
+-- mistimed cast at most produces a single "Exhausted" message instead of
+-- a visible burst of poof effects.
+local lastHealCastAt = 0
+local healCastMinGapMs = 1000
+
 macro(100, function()
   if standBySpells then return end
   if not currentSettings.enabled then return end
+  if now - lastHealCastAt < healCastMinGapMs then return end
+  local _origSay = say
+  local say = function(spell) _origSay(spell); lastHealCastAt = now end
   local somethingIsOnCooldown = false
 
   for _, entry in pairs(currentSettings.spellTable) do
@@ -641,57 +652,57 @@ macro(100, function()
     if (not currentSettings.Visible or item) and entry.enabled then
       if entry.origin == "HP%" then
         if entry.sign == "=" and hppercent() == entry.value then
-          g_game.useInventoryItemWith(entry.item, player)
+          usewith(entry.item, player)
           return
         elseif entry.sign == ">" and hppercent() >= entry.value then
-          g_game.useInventoryItemWith(entry.item, player)
+          usewith(entry.item, player)
           return
         elseif entry.sign == "<" and hppercent() <= entry.value then
-          g_game.useInventoryItemWith(entry.item, player)
+          usewith(entry.item, player)
           return
         end
       elseif entry.origin == "HP" then
-        if entry.sign == "=" and hp() == tonumberentry.value then
-          g_game.useInventoryItemWith(entry.item, player)
+        if entry.sign == "=" and hp() == tonumber(entry.value) then
+          usewith(entry.item, player)
           return
         elseif entry.sign == ">" and hp() >= entry.value then
-          g_game.useInventoryItemWith(entry.item, player)
+          usewith(entry.item, player)
           return
         elseif entry.sign == "<" and hp() <= entry.value then
-          g_game.useInventoryItemWith(entry.item, player)
+          usewith(entry.item, player)
           return
         end
       elseif entry.origin == "MP%" then
         if entry.sign == "=" and manapercent() == entry.value then
-          g_game.useInventoryItemWith(entry.item, player)
+          usewith(entry.item, player)
           return
         elseif entry.sign == ">" and manapercent() >= entry.value then
-          g_game.useInventoryItemWith(entry.item, player)
+          usewith(entry.item, player)
           return
         elseif entry.sign == "<" and manapercent() <= entry.value then
-          g_game.useInventoryItemWith(entry.item, player)
+          usewith(entry.item, player)
           return
         end
       elseif entry.origin == "MP" then
         if entry.sign == "=" and mana() == entry.value then
-          g_game.useInventoryItemWith(entry.item, player)
+          usewith(entry.item, player)
           return
         elseif entry.sign == ">" and mana() >= entry.value then
-          g_game.useInventoryItemWith(entry.item, player)
+          usewith(entry.item, player)
           return
         elseif entry.sign == "<" and mana() <= entry.value then
-          g_game.useInventoryItemWith(entry.item, player)
+          usewith(entry.item, player)
           return
         end   
       elseif entry.origin == "burst" then
         if entry.sign == "=" and burstDamageValue() == entry.value then
-          g_game.useInventoryItemWith(entry.item, player)
+          usewith(entry.item, player)
           return
         elseif entry.sign == ">" and burstDamageValue() >= entry.value then
-          g_game.useInventoryItemWith(entry.item, player)
+          usewith(entry.item, player)
           return
         elseif entry.sign == "<" and burstDamageValue() <= entry.value then
-          g_game.useInventoryItemWith(entry.item, player)
+          usewith(entry.item, player)
           return
         end   
       end

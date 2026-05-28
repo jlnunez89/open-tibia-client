@@ -16,7 +16,6 @@ local function convertOldConfig(config)
     items = {},
     capSwitch = config.capSwitch,
     SoftBoots = config.SoftBoots,
-    imbues = config.imbues,
     staminaSwitch = config.staminaSwitch,
     capValue = config.capValue,
     staminaValue = config.staminaValue
@@ -189,7 +188,6 @@ local function loadSettings()
   -- switches and values
   SuppliesWindow.capSwitch:setOn(config.capSwitch)
   SuppliesWindow.SoftBoots:setOn(config.SoftBoots)
-  SuppliesWindow.imbues:setOn(config.imbues)
   SuppliesWindow.staminaSwitch:setOn(config.staminaSwitch)
   SuppliesWindow.capValue:setText(config.capValue or 0)
   SuppliesWindow.staminaValue:setText(config.staminaValue or 0)
@@ -303,11 +301,6 @@ end
 SuppliesWindow.SoftBoots.onClick = function(widget)
   config.SoftBoots = not config.SoftBoots
   widget:setOn(config.SoftBoots)
-end
-
-SuppliesWindow.imbues.onClick = function(widget)
-  config.imbues = not config.imbues
-  widget:setOn(config.imbues)
 end
 
 SuppliesWindow.staminaSwitch.onClick = function(widget)
@@ -457,8 +450,7 @@ Supplies.getAdditionalData = function()
   local data = {
     stamina = {enabled = config.staminaSwitch, value = config.staminaValue},
     capacity = {enabled = config.capSwitch, value = config.capValue},
-    softBoots = {enabled = config.SoftBoots},
-    imbues = {enabled = config.imbues}
+    softBoots = {enabled = config.SoftBoots}
   }
   return data
 end

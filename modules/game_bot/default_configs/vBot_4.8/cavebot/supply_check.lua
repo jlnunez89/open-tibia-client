@@ -94,10 +94,6 @@ CaveBot.Extensions.SupplyCheck.setup = function()
         print("CaveBot[SupplyCheck]: Round limit reached, going back on refill. Last round took: " .. round)
         setCaveBotData()
         return false
-      elseif (supplyInfo.imbues.enabled and player:getSkillLevel(11) == 0) then
-        print("CaveBot[SupplyCheck]: Imbues ran out. Going on refill. Last round took: " .. round)
-        setCaveBotData()
-        return false
       elseif (supplyInfo.stamina.enabled and stamina() < tonumber(supplyInfo.stamina.value)) then
         print("CaveBot[SupplyCheck]: Stamina ran out. Going on refill. Last round took: " .. round)
         setCaveBotData()

@@ -47,6 +47,40 @@ function rePosition(minTiles)
   end
 end
 
+local attackJitterFor = nil
+local attackJitterUntil = 0
+
+-- Anti-detection: when too many monsters are clustered around the player,
+-- step away from their centroid to break stationary-tank patterns. Gated
+-- by humanize.maxAttackers() and a cooldown. No-op when humanize is off.
+local lastOverloadReposition = 0
+local function overloadReposition()
+  if not (humanize and humanize.enabled()) then return end
+  local cooldown = humanize.repositionCooldown and humanize.repositionCooldown() or 6000
+  if now - lastOverloadReposition < cooldown then return end
+  local pPos = player:getPosition()
+  local attackers = {}
+  for _, c in ipairs(g_map.getSpectatorsInRange(pPos, false, 4, 4)) do
+    if c:isMonster() then
+      table.insert(attackers, c:getPosition())
+    end
+  end
+  local maxA = humanize.maxAttackers and humanize.maxAttackers() or 4
+  if #attackers <= maxA then return end
+  local sx, sy = 0, 0
+  for _, p in ipairs(attackers) do sx = sx + p.x; sy = sy + p.y end
+  local cx, cy = sx / #attackers, sy / #attackers
+  local dx, dy = pPos.x - cx, pPos.y - cy
+  local stepX = (math.abs(dx) < 0.001) and 0 or (dx > 0 and 1 or -1)
+  local stepY = (math.abs(dy) < 0.001) and 0 or (dy > 0 and 1 or -1)
+  if stepX == 0 and stepY == 0 then return end
+  local target = {x = pPos.x + stepX, y = pPos.y + stepY, z = pPos.z}
+  local tile = g_map.getTile(target)
+  if not tile or not tile:isWalkable() or not tile:isPathable() then return end
+  lastOverloadReposition = now
+  return CaveBot.GoTo(target, 0)
+end
+
 TargetBot.Creature.attack = function(params, targets, isLooting) -- params {config, creature, danger, priority}
   if player:isWalking() then
     lastWalk = now
@@ -56,10 +90,37 @@ TargetBot.Creature.attack = function(params, targets, isLooting) -- params {conf
   local creature = params.creature
   
   if g_game.getAttackingCreature() ~= creature then
+    -- Anti-detection: skip attack initiation entirely during a humanize pause.
+    if humanize and humanize.enabled() and not humanize.canActNow() then
+      TargetBot.delay(250)
+      return
+    end
+    -- Anti-detection: stagger the attack packet by a small randomized delay
+    -- on each new target acquisition. We arm the delay once per target then
+    -- attack normally on the next tick that lands after the deadline.
+    if humanize and humanize.enabled() then
+      if attackJitterFor ~= creature then
+        local jitter = humanize.delay("attackStart")
+        attackJitterFor = creature
+        attackJitterUntil = now + jitter
+        if jitter > 0 then
+          TargetBot.delay(jitter)
+          return
+        end
+      elseif now < attackJitterUntil then
+        TargetBot.delay(attackJitterUntil - now)
+        return
+      end
+    end
     g_game.attack(creature)
+  else
+    attackJitterFor = creature
   end
 
   if not isLooting then -- walk only when not looting
+    -- Phase 6: try overload reposition before the normal walk routine; if it
+    -- returns a walk action, defer normal walk this tick.
+    if overloadReposition() then return end
     TargetBot.Creature.walk(creature, config, targets)
   end
 
@@ -200,7 +261,7 @@ TargetBot.Creature.walk = function(creature, config, targets)
     end
     for _, candidate in ipairs(candidates) do
       local tile = g_map.getTile(candidate)
-      if tile and tile:isWalkable() then
+      if tile and tile:isWalkable() and tile:isPathable() then
         return TargetBot.walkTo(candidate, 2, {ignoreNonPathable=true})
       end
     end
@@ -226,7 +287,7 @@ TargetBot.Creature.walk = function(creature, config, targets)
     end
     for _, candidate in ipairs(candidates) do
       local tile = g_map.getTile(candidate)
-      if tile and tile:isWalkable() then
+      if tile and tile:isWalkable() and tile:isPathable() then
         return TargetBot.walkTo(candidate, 2, {ignoreNonPathable=true})
       end
     end

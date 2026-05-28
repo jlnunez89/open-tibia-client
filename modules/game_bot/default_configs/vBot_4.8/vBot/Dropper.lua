@@ -141,6 +141,19 @@ macro(200, function()
                 end
             end
         end
+        -- Also scan inventory slots (head/neck/back/body/right/left/leg/feet/finger/ammo)
+        for slot = 1, 10 do
+            local item = getInventoryItem(slot)
+            if item then
+                for ___, userItem in ipairs(tables[i]) do
+                    if item:getId() == userItem then
+                        return i == 1 and freecap() < 150 and dropItem(item) or
+                               i == 2 and use(item) or
+                               i == 3 and dropItem(item)
+                    end
+                end
+            end
+        end
     end
 
 end)

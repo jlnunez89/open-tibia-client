@@ -21,7 +21,18 @@ TargetBot.walk = function()
       return
     end
   end
-  local path = getPath(pos, dest, maxDist, params)
+  -- try a field-safe path first when ignoreNonPathable is set
+  local path
+  if params.ignoreNonPathable then
+    local safeParams = {}
+    for k, v in pairs(params) do safeParams[k] = v end
+    safeParams.ignoreNonPathable = false
+    path = getPath(pos, dest, maxDist, safeParams)
+  end
+  -- fall back to original params (which may ignore non-pathable tiles)
+  if not path then
+    path = getPath(pos, dest, maxDist, params)
+  end
   if path then
     walk(path[1])
   end

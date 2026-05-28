@@ -296,7 +296,7 @@ onTalk(function(name, level, mode, text, channelId, pos)
       end
     end
   end
-  if isAttSpell(text) and config.enabled and config.serverEnabled then
+  if isAttSpell(text) and config.enabled and config.serverEnabled and BotServer then
     BotServer.send("trigger", "start")
   end
 end)
@@ -403,7 +403,7 @@ macro(10, function()
     startCombo = false
   end
   -- attack part / server
-  if BotServer._websocket and config.enabled and config.serverEnabled then
+  if BotServer and BotServer._websocket and config.enabled and config.serverEnabled then
     if target() and now - timeout > 500 then
       targetPos = target():getName()
       BotServer.send("target", targetPos)
@@ -413,12 +413,12 @@ macro(10, function()
 end)
 
 onUseWith(function(pos, itemId, target, subType)
-  if BotServer._websocket and itemId == 3155 then
+  if BotServer and BotServer._websocket and itemId == 3155 then
     BotServer.send("useWith", target:getPosition())
   end
 end)
 
-if BotServer._websocket and config.enabled and config.serverEnabled then
+if BotServer and BotServer._websocket and config.enabled and config.serverEnabled then
   BotServer.listen("trigger", function(name, message)
     if message == "start" and name:lower() ~= player:getName():lower() and name:lower() == config.serverLeader:lower() and config.serverTriggers then
       startCombo = true

@@ -21,18 +21,18 @@ dofile("/cavebot/minimap.lua")
 dofile("/cavebot/sell_all.lua")
 dofile("/cavebot/depositor.lua")
 dofile("/cavebot/buy_supplies.lua")
-dofile("/cavebot/d_withdraw.lua")
+--dofile("/cavebot/d_withdraw.lua") -- removed: depot withdraw uses modern items
 dofile("/cavebot/supply_check.lua")
 dofile("/cavebot/travel.lua")
 dofile("/cavebot/doors.lua")
 dofile("/cavebot/pos_check.lua")
 dofile("/cavebot/withdraw.lua")
-dofile("/cavebot/inbox_withdraw.lua")
+--dofile("/cavebot/inbox_withdraw.lua") -- removed: inbox system not available on 7.7
 dofile("/cavebot/lure.lua")
 dofile("/cavebot/bank.lua")
 dofile("/cavebot/clear_tile.lua")
 dofile("/cavebot/tasker.lua")
-dofile("/cavebot/imbuing.lua")
+--dofile("/cavebot/imbuing.lua") -- removed: imbuing system not available on 7.7
 dofile("/cavebot/stand_lure.lua")
 -- main cavebot file, must be last
 dofile("/cavebot/cavebot.lua")

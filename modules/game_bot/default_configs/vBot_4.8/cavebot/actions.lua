@@ -388,7 +388,7 @@ CaveBot.registerAction("goto", "green", function(value, retries, prev)
   end
   
   -- try to find path, don't ignore creatures, don't ignore fields
-  if not CaveBot.Config.get("ignoreFields") and CaveBot.walkTo(pos, 40) then
+  if not CaveBot.Config.get("ignoreFields") and CaveBot.walkTo(pos, maxDist) then
     return "retry"
   end
   

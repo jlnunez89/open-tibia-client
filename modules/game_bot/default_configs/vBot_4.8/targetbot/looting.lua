@@ -8,6 +8,13 @@ local itemsById = {}
 local containersById = {}
 local dontSave = false
 
+-- Anti-detection: extra randomized delay added to every per-loot-step waitTill.
+-- 0 when humanize is missing/disabled, so vanilla cadence is preserved.
+local function lootJitter()
+  if humanize and humanize.enabled() then return humanize.delay("loot") end
+  return 0
+end
+
 TargetBot.Looting.setup = function()
   ui = UI.createWidget("TargetBotLootingPanel")
   UI.Container(TargetBot.Looting.onItemsUpdate, true, nil, ui.items)
@@ -106,11 +113,8 @@ TargetBot.Looting.process = function(targets, dangerLevel)
     status = "High danger"
     return false
   end
-  if player:getFreeCapacity() < tonumber(ui.minCapacityPanel.value:getText()) then
-    status = "No cap"
-    TargetBot.Looting.list = {}
-    return false
-  end
+  local capScale = g_game.getFeature(GameDoubleFreeCapacity) and 1 or 100
+  local noCap = player:getFreeCapacity() * capScale < tonumber(ui.minCapacityPanel.value:getText())
   local loot = storage.extras.lootLast and TargetBot.Looting.list[#TargetBot.Looting.list] or TargetBot.Looting.list[1]
   if loot == nil then
     status = ""
@@ -124,17 +128,21 @@ TargetBot.Looting.process = function(targets, dangerLevel)
   local lootContainers = TargetBot.Looting.getLootContainers(containers)
 
   -- check if there's container for loot and has empty space for it
-  if not lootContainers[1] then
+  if not noCap and not lootContainers[1] then
     -- there's no space, don't loot
     status = "No space"
     return false
   end
 
-  status = "Looting"
+  if noCap then
+    status = "Looting (dropping)"
+  else
+    status = "Looting"
+  end
 
   for index, container in pairs(containers) do
     if container.lootContainer then
-      TargetBot.Looting.lootContainer(lootContainers, container)
+      TargetBot.Looting.lootContainer(lootContainers, container, noCap)
       return true
     end
   end
@@ -161,7 +169,7 @@ TargetBot.Looting.process = function(targets, dangerLevel)
   end
 
   g_game.open(container)
-  waitTill = now + (storage.extras.lootDelay or 200)
+  waitTill = now + (storage.extras.lootDelay or 200) + lootJitter()
   waitingForContainer = container:getId()
 
   return true
@@ -189,7 +197,7 @@ TargetBot.Looting.getLootContainers = function(containers)
   if not lootContainers[1] then
     if toOpen then
       g_game.open(toOpen[1], toOpen[2])
-      waitTill = now + 500 -- wait 0.5s
+      waitTill = now + 500 + lootJitter() -- wait 0.5s
       return lootContainers
     end
     -- check containers one more time, maybe there's any loot container
@@ -198,7 +206,7 @@ TargetBot.Looting.getLootContainers = function(containers)
         for slot, item in ipairs(container:getItems()) do
           if item:isContainer() and containersById[item:getId()] then
             g_game.open(item)
-            waitTill = now + 500 -- wait 0.5s
+            waitTill = now + 500 + lootJitter() -- wait 0.5s
             return lootContainers
           end
         end
@@ -210,7 +218,7 @@ TargetBot.Looting.getLootContainers = function(containers)
       if item and item:isContainer() and not openedContainersById[item:getId()] then
         -- container which is not opened yet, let's open it
         g_game.open(item)
-        waitTill = now + 500 -- wait 0.5s
+        waitTill = now + 500 + lootJitter() -- wait 0.5s
         return lootContainers
       end
     end
@@ -218,7 +226,7 @@ TargetBot.Looting.getLootContainers = function(containers)
   return lootContainers
 end
 
-TargetBot.Looting.lootContainer = function(lootContainers, container)
+TargetBot.Looting.lootContainer = function(lootContainers, container, noCap)
   -- loot items
   local nextContainer = nil
   for i, item in ipairs(container:getItems()) do
@@ -227,7 +235,11 @@ TargetBot.Looting.lootContainer = function(lootContainers, container)
     elseif itemsById[item:getId()] or (ui.everyItem:isOn() and not item:isContainer()) then
       item.lootTries = (item.lootTries or 0) + 1
       if item.lootTries < 5 then -- if can't be looted within 0.5s then skip it
-        return TargetBot.Looting.lootItem(lootContainers, item)
+        if noCap then
+          return TargetBot.Looting.dropItem(item)
+        else
+          return TargetBot.Looting.lootItem(lootContainers, item)
+        end
       end
     elseif storage.foodItems and storage.foodItems[1] and lastFoodConsumption + 5000 < now then
       for _, food in ipairs(storage.foodItems) do
@@ -243,9 +255,9 @@ TargetBot.Looting.lootContainer = function(lootContainers, container)
   -- no more items to loot, open next container
   if nextContainer then
     nextContainer.lootTries = (nextContainer.lootTries or 0) + 1
-    if nextContainer.lootTries < 2 then -- max 0.6s to open it
+    if nextContainer.lootTries < 2 then -- max 1s to open it
       g_game.open(nextContainer, container)
-      waitTill = now + 300 -- give it 0.3s to open
+      waitTill = now + 500 + lootJitter() -- give it 0.5s to open
       waitingForContainer = nextContainer:getId()
       return
     end
@@ -253,7 +265,7 @@ TargetBot.Looting.lootContainer = function(lootContainers, container)
   
   -- looting finished, remove container from list
   container.lootContainer = false
-  g_game.close(container)
+  -- g_game.close(container) -- don't close — let it close naturally when walking away
   table.remove(TargetBot.Looting.list, storage.extras.lootLast and #TargetBot.Looting.list or 1) 
 end
 
@@ -265,6 +277,11 @@ onTextMessage(function(mode, text)
   end
 end)
 
+TargetBot.Looting.dropItem = function(item)
+  g_game.move(item, player:getPosition(), item:getCount())
+  waitTill = now + 300 + lootJitter()
+end
+
 TargetBot.Looting.lootItem = function(lootContainers, item)
   if item:isStackable() then
     local count = item:getCount()
@@ -272,7 +289,7 @@ TargetBot.Looting.lootItem = function(lootContainers, item)
       for slot, citem in ipairs(container:getItems()) do
         if item:getId() == citem:getId() and citem:getCount() < 100 then
           g_game.move(item, container:getSlotPosition(slot - 1), count)
-          waitTill = now + 300 -- give it 0.3s to move item
+          waitTill = now + 300 + lootJitter() -- give it 0.3s to move item
           return
         end
       end
@@ -281,7 +298,7 @@ TargetBot.Looting.lootItem = function(lootContainers, item)
 
   local container = lootContainers[1]
   g_game.move(item, container:getSlotPosition(container:getItemsCount()), 1)
-  waitTill = now + 300 -- give it 0.3s to move item
+  waitTill = now + 300 + lootJitter() -- give it 0.3s to move item
 end
 
 onContainerOpen(function(container, previousContainer)

@@ -4,6 +4,18 @@ local isWalking = {}
 local walkPath = {}
 local walkPathIter = 0
 
+-- Anti-detection: ask the optional global `humanize` module for a randomized
+-- extra delay on each step. Returns 0 when humanize is missing/disabled so
+-- behavior is identical to vanilla in that case.
+local function humanMoveJitter()
+  if humanize and humanize.enabled() then return humanize.delay("move") end
+  return 0
+end
+local function humanPaused()
+  if humanize and humanize.enabled() then return not humanize.canActNow() end
+  return false
+end
+
 CaveBot.resetWalking = function()
   expectedDirs = {}
   walkPath = {}
@@ -22,10 +34,14 @@ CaveBot.doWalking = function()
   end
   local dir = walkPath[walkPathIter]
   if dir then
+    if humanPaused() then
+      CaveBot.delay(250)
+      return true
+    end
     g_game.walk(dir, false)
     table.insert(expectedDirs, dir)
     walkPathIter = walkPathIter + 1
-    CaveBot.delay(CaveBot.Config.get("walkDelay") + player:getStepDuration(false, dir))
+    CaveBot.delay(CaveBot.Config.get("walkDelay") + player:getStepDuration(false, dir) + humanMoveJitter())
     return true
   end
   return false  
@@ -78,7 +94,7 @@ CaveBot.walkTo = function(dest, maxDist, params)
     if ret then
       isWalking = true
       expectedDirs = path
-      CaveBot.delay(CaveBot.Config.get("mapClickDelay") + math.max(CaveBot.Config.get("ping") + player:getStepDuration(false, dir), player:getStepDuration(false, dir) * 2))
+      CaveBot.delay(CaveBot.Config.get("mapClickDelay") + math.max(CaveBot.Config.get("ping") + player:getStepDuration(false, dir), player:getStepDuration(false, dir) * 2) + humanMoveJitter())
     end
     return ret
   end
@@ -88,6 +104,6 @@ CaveBot.walkTo = function(dest, maxDist, params)
   walkPath = path
   walkPathIter = 2
   expectedDirs = { dir }
-  CaveBot.delay(CaveBot.Config.get("walkDelay") + player:getStepDuration(false, dir))
+  CaveBot.delay(CaveBot.Config.get("walkDelay") + player:getStepDuration(false, dir) + humanMoveJitter())
   return true
 end

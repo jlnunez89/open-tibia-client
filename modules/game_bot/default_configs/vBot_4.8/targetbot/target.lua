@@ -294,7 +294,7 @@ TargetBot.useItem = function(item, subType, target, delay)
     if not thing or not thing:isFluidContainer() then
       subType = g_game.getClientVersion() >= 860 and 0 or 1
     end
-    if g_game.getClientVersion() < 780 then
+    if g_game.getClientVersion() < 840 then
       local tmpItem = g_game.findPlayerItem(item, subType)
       if not tmpItem then return end
       g_game.useWith(tmpItem, target, subType) -- using item from bp
@@ -312,7 +312,7 @@ TargetBot.useAttackItem = function(item, subType, target, delay)
     if not thing or not thing:isFluidContainer() then
       subType = g_game.getClientVersion() >= 860 and 0 or 1
     end
-    if g_game.getClientVersion() < 780 then
+    if g_game.getClientVersion() < 840 then
       local tmpItem = g_game.findPlayerItem(item, subType)
       if not tmpItem then return end
       g_game.useWith(tmpItem, target, subType) -- using item from bp  

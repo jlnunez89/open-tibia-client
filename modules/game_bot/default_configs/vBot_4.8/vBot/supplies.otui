@@ -162,22 +162,12 @@ SuppliesWindow < MainWindow
     anchors.top: prev.top
     margin-left: 5
 
-  BotSwitch
-    id: imbues
-    anchors.top: prev.bottom
-    anchors.left: sep.right
-    anchors.right: parent.right
-    margin-top: 5
-    margin-left: 10
-    text: No Imbues
-    tooltip: Go refill when mana leech imbue has worn off.
-
   TextList
     id: profiles
     anchors.top: prev.bottom
     margin-top: 5
-    anchors.left: prev.left
-    anchors.right: prev.right
+    anchors.left: SoftBoots.left
+    anchors.right: SoftBoots.right
     anchors.bottom: bottomSep.top
     margin-bottom: 25
   
