@@ -252,7 +252,10 @@ macro(250, function()
   if now < nextCastAt then return end
   if not config.rodId or config.rodId <= 0 then return end
   local freeCap = player:getFreeCapacity()
-  if freeCap and freeCap < (config.minCap or 0) then return end
+  -- player:getFreeCapacity() reports capacity in 1/100 oz (e.g. 1000 = 10.00 oz
+  -- in client). Divide minCap (which the user enters in display oz) by 100 to
+  -- match the same unit before comparing.
+  if freeCap and freeCap < ((config.minCap or 0) / 100) then return end
   local rod = findItem(config.rodId)
   if not rod then return end
 
