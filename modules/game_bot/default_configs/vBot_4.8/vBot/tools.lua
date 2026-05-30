@@ -29,18 +29,3 @@ moneyContainer:setHeight(35)
 moneyContainer:setItems(storage.moneyItems)
 
 UI.Separator()
-
-macro(60000, "Send message on trade", function()
-  local trade = getChannelId("advertising")
-  if not trade then
-    trade = getChannelId("trade")
-  end
-  if trade and storage.autoTradeMessage:len() > 0 then    
-    sayChannel(trade, storage.autoTradeMessage)
-  end
-end)
-UI.TextEdit(storage.autoTradeMessage or "I'm using OTClientV8!", function(widget, text)    
-  storage.autoTradeMessage = text
-end)
-
-UI.Separator()

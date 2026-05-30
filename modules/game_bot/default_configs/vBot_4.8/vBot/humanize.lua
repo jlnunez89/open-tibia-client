@@ -2,8 +2,8 @@
 --
 -- Other vBot/CaveBot/TargetBot scripts call into this module to get
 -- randomized delays, ask whether they should pause, and trigger occasional
--- random turns / "look around" pauses so the character doesn't move with a
--- robotic fixed cadence.
+-- turns toward the creature we are attacking / "look around" pauses so the
+-- character doesn't move with a robotic fixed cadence.
 --
 -- Public API (exposed as the global `humanize`):
 --   humanize.enabled()                -> bool
@@ -35,7 +35,8 @@ cfg.lootJitterMax    = cfg.lootJitterMax    or 520
 cfg.attackStartMin   = cfg.attackStartMin   or 150
 cfg.attackStartMax   = cfg.attackStartMax   or 450
 
--- Random turns while idle.
+-- Occasional turns toward the creature we are attacking (mimics a player
+-- re-facing their target). Chance is rolled at most once per cooldown.
 cfg.turnChancePct    = cfg.turnChancePct    or 4
 cfg.turnCooldownMs   = cfg.turnCooldownMs   or 12000
 
@@ -46,9 +47,11 @@ cfg.pauseMinMs       = cfg.pauseMinMs       or 1500
 cfg.pauseMaxMs       = cfg.pauseMaxMs       or 4000
 
 -- Reposition heuristic: when too many monsters are around, step away from
--- their centroid. Set maxAttackers high to effectively disable.
+-- their centroid. Set maxAttackers high to effectively disable. The chance
+-- gate adds randomness so the step-away doesn't fire on every opportunity.
 cfg.maxAttackers         = cfg.maxAttackers         or 4
 cfg.repositionCooldownMs = cfg.repositionCooldownMs or 6000
+cfg.repositionChancePct  = cfg.repositionChancePct  or 60
 
 -- Internal state.
 local state = {
@@ -105,17 +108,35 @@ function humanize.repositionCooldown()
   return cfg.repositionCooldownMs or 6000
 end
 
+function humanize.repositionChance()
+  return cfg.repositionChancePct or 100
+end
+
 -- "Light" preset disables random turns/pauses entirely.
 local function randomBehaviorsAllowed()
   return humanize.enabled() and cfg.preset ~= "Light"
 end
 
-local function tryRandomTurn()
+local function tryTurnToTarget()
   if not randomBehaviorsAllowed() then return end
   if now - state.lastTurnAt < cfg.turnCooldownMs then return end
   if math.random(0, 99) >= cfg.turnChancePct then return end
-  local dirs = { North, East, South, West }
-  local d = dirs[math.random(1, #dirs)]
+  -- Only turn when we actually have a target to face.
+  local target = g_game.getAttackingCreature()
+  if not target then return end
+  local tPos = target:getPosition()
+  local pPos = player:getPosition()
+  if not tPos or not pPos or tPos.z ~= pPos.z then return end
+  local dx = tPos.x - pPos.x
+  local dy = tPos.y - pPos.y
+  if dx == 0 and dy == 0 then return end
+  -- Pick the cardinal direction that best points at the target.
+  local d
+  if math.abs(dx) >= math.abs(dy) then
+    d = dx > 0 and East or West
+  else
+    d = dy > 0 and South or North
+  end
   state.lastTurnAt = now
   -- `turn(dir)` is a vBot helper that emits a turn packet without moving.
   if turn then turn(d) end
@@ -135,7 +156,7 @@ function humanize.tickIdle()
   if now - state.lastIdleTick < 1000 then return end
   state.lastIdleTick = now
   if now < state.pausedUntil then return end
-  tryRandomTurn()
+  tryTurnToTarget()
   tryRandomPause()
 end
 
@@ -166,7 +187,7 @@ Panel
 
 local params = setupUI([[
 Panel
-  height: 360
+  height: 452
 
   Label
     anchors.top: parent.top
@@ -272,99 +293,133 @@ Panel
   Label
     anchors.top: lootJitterMin.bottom
     anchors.left: parent.left
-    margin-top: 6
+    margin-top: 10
     margin-left: 3
-    text: Turn chance (%/sec):
-    width: 100
+    text: Turn To Target
+    color: #c8a2ff
+
+  Label
+    anchors.top: prev.bottom
+    anchors.left: parent.left
+    margin-top: 4
+    margin-left: 12
+    text: Chance % (0-100):
+    width: 130
 
   BotTextEdit
     id: turnChancePct
-    anchors.top: prev.top
-    anchors.left: prev.right
-    margin-left: 3
-    margin-right: 3
-    width: 60
+    anchors.verticalCenter: prev.verticalCenter
+    anchors.right: parent.right
+    margin-right: 5
+    width: 55
 
   Label
     anchors.top: prev.bottom
     anchors.left: parent.left
-    margin-top: 5
-    margin-left: 3
-    text: Turn cooldown (ms):
-    width: 100
+    margin-top: 4
+    margin-left: 12
+    text: Cooldown (ms):
+    width: 130
 
   BotTextEdit
     id: turnCooldownMs
-    anchors.top: prev.top
-    anchors.left: prev.right
-    margin-left: 3
-    margin-right: 3
-    width: 60
+    anchors.verticalCenter: prev.verticalCenter
+    anchors.right: parent.right
+    margin-right: 5
+    width: 55
 
   Label
     anchors.top: prev.bottom
     anchors.left: parent.left
-    margin-top: 6
+    margin-top: 10
     margin-left: 3
-    text: Pause chance (%/sec):
-    width: 100
+    text: Pause Randomly
+    color: #c8a2ff
+
+  Label
+    anchors.top: prev.bottom
+    anchors.left: parent.left
+    margin-top: 4
+    margin-left: 12
+    text: Chance % (0-100):
+    width: 130
 
   BotTextEdit
     id: pauseChancePct
-    anchors.top: prev.top
-    anchors.left: prev.right
-    margin-left: 3
-    margin-right: 3
-    width: 60
+    anchors.verticalCenter: prev.verticalCenter
+    anchors.right: parent.right
+    margin-right: 5
+    width: 55
 
   Label
     anchors.top: prev.bottom
     anchors.left: parent.left
-    margin-top: 5
-    margin-left: 3
-    text: Pause cooldown (ms):
-    width: 100
+    margin-top: 4
+    margin-left: 12
+    text: Cooldown (ms):
+    width: 130
 
   BotTextEdit
     id: pauseCooldownMs
-    anchors.top: prev.top
-    anchors.left: prev.right
-    margin-left: 3
-    margin-right: 3
-    width: 60
+    anchors.verticalCenter: prev.verticalCenter
+    anchors.right: parent.right
+    margin-right: 5
+    width: 55
 
   Label
     anchors.top: prev.bottom
     anchors.left: parent.left
-    margin-top: 6
+    margin-top: 10
     margin-left: 3
-    text: Reposition >N attackers:
-    width: 100
+    text: Reposition
+    color: #c8a2ff
+
+  Label
+    anchors.top: prev.bottom
+    anchors.left: parent.left
+    margin-top: 4
+    margin-left: 12
+    text: On >N attackers:
+    width: 130
     tooltip: Trigger a reposition when more than N monsters are around the player.
 
   BotTextEdit
     id: maxAttackers
-    anchors.top: prev.top
-    anchors.left: prev.right
-    margin-left: 3
-    margin-right: 3
-    width: 60
+    anchors.verticalCenter: prev.verticalCenter
+    anchors.right: parent.right
+    margin-right: 5
+    width: 55
 
   Label
     anchors.top: prev.bottom
     anchors.left: parent.left
-    margin-top: 5
-    margin-left: 3
-    text: Reposition cooldown (ms):
-    width: 100
+    margin-top: 4
+    margin-left: 12
+    text: Chance % (0-100):
+    width: 130
+    tooltip: Probability that a valid reposition opportunity actually triggers a step-away.
+
+  BotTextEdit
+    id: repositionChancePct
+    anchors.verticalCenter: prev.verticalCenter
+    anchors.right: parent.right
+    margin-right: 5
+    width: 55
+
+  Label
+    anchors.top: prev.bottom
+    anchors.left: parent.left
+    margin-top: 4
+    margin-left: 12
+    text: Cooldown (ms):
+    width: 130
 
   BotTextEdit
     id: repositionCooldownMs
-    anchors.top: prev.top
-    anchors.left: prev.right
-    margin-left: 3
-    margin-right: 3
-    width: 60
+    anchors.verticalCenter: prev.verticalCenter
+    anchors.right: parent.right
+    margin-right: 5
+    width: 55
 ]])
 params:hide()
 
@@ -409,6 +464,7 @@ bindNumber(params.turnCooldownMs,       function() return cfg.turnCooldownMs    
 bindNumber(params.pauseChancePct,       function() return cfg.pauseChancePct       end, function(n) cfg.pauseChancePct       = n end, 0, 100)
 bindNumber(params.pauseCooldownMs,      function() return cfg.pauseCooldownMs      end, function(n) cfg.pauseCooldownMs      = n end, 0)
 bindNumber(params.maxAttackers,         function() return cfg.maxAttackers         end, function(n) cfg.maxAttackers         = n end, 0)
+bindNumber(params.repositionChancePct,  function() return cfg.repositionChancePct  end, function(n) cfg.repositionChancePct  = n end, 0, 100)
 bindNumber(params.repositionCooldownMs, function() return cfg.repositionCooldownMs end, function(n) cfg.repositionCooldownMs = n end, 0)
 
 

@@ -16,7 +16,9 @@ function init()
   trackerWindow:setup()
   trackerWindow:hide()
   
-  if not g_app.isMobile() then
+  -- Quest Log / Quest Tracker buttons removed: the 7.72 server has no quest log
+  -- support, so these buttons did nothing and only added confusion.
+  if false and not g_app.isMobile() then
     questLogButton = modules.client_topmenu.addLeftGameButton('questLogButton', tr('Quest Log'), '/images/topbuttons/questlog', function() g_game.requestQuestLog() end, false, 8)
     questTrackerButton = modules.client_topmenu.addLeftGameButton('questTrackerButton', tr('Quest Tracker'), '/images/topbuttons/quest_tracker', toggle, false, 9)
   end

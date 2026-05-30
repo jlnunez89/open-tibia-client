@@ -35,19 +35,23 @@ local desc = ""
 local hour = ""
 local launchTime = now
 local startExp = exp()
-local dmgTable = {}
-local healTable = {}
+-- Impact Analyzer data sources (all approximate on 7.72 - see the UI section):
+local dmgTable = {}        -- damage DEALT (approx, from floating numbers on creatures)
+local dmgTakenTable = {}   -- damage TAKEN (exact, from "You lose ..." messages)
+local healTable = {}       -- healing (approx, from positive HP changes)
 local expTable = {}
-local totalDmg = 0
-local totalHeal = 0
+local totalDmg = 0         -- total damage dealt (approx)
+local totalDmgTaken = 0    -- total damage taken
+local totalHeal = 0        -- total healing (approx)
 local dmgDistribution = {}
 local first = {l="-", r="0"}
 local second = {l="-", r="0"}
 local third = {l="-", r="0"}
 local fourth = {l="-", r="0"}
 local five = {l="-", r="0"}
-storage.bestHit = storage.bestHit or 0
-storage.bestHeal = storage.bestHeal or 0
+storage.bestHit = storage.bestHit or 0    -- hardest single hit we dealt (approx)
+storage.worstHit = storage.worstHit or 0  -- hardest single hit we took
+storage.bestHeal = storage.bestHeal or 0  -- biggest single heal tick (approx)
 local lootedItems = {}
 local useData = {}
 local usedItems ={}
@@ -79,7 +83,9 @@ local windowsTable = {"MainAnalyzerWindow",
                       "HuntingAnalyzerWindow", 
                       "LootAnalyzerWindow", 
                       "SupplyAnalyzerWindow", 
-                      "ImpactAnalyzerWindow", 
+                      "DamageDealtAnalyzerWindow", 
+                      "DamageTakenAnalyzerWindow", 
+                      "HealingAnalyzerWindow", 
                       "XPAnalyzerWindow", 
                       "PartyAnalyzerWindow", 
                       "DropTracker", 
@@ -97,16 +103,22 @@ end
 
 local mainWindow = UI.createMiniWindow("MainAnalyzerWindow")
 mainWindow:hide()
-mainWindow:setContentMaximumHeight(267)
+mainWindow:setContentMaximumHeight(290)
 local huntingWindow = UI.createMiniWindow("HuntingAnalyzer")
 huntingWindow:hide()
 local lootWindow = UI.createMiniWindow("LootAnalyzer")
 lootWindow:hide()
 local supplyWindow = UI.createMiniWindow("SupplyAnalyzer")
 supplyWindow:hide()
-local impactWindow = UI.createMiniWindow("ImpactAnalyzer")
-impactWindow:hide()
-impactWindow:setContentMaximumHeight(615)
+local dealtWindow = UI.createMiniWindow("DamageDealtAnalyzer")
+dealtWindow:hide()
+dealtWindow:setContentMaximumHeight(230)
+local takenWindow = UI.createMiniWindow("DamageTakenAnalyzer")
+takenWindow:hide()
+takenWindow:setContentMaximumHeight(330)
+local healingWindow = UI.createMiniWindow("HealingAnalyzer")
+healingWindow:hide()
+healingWindow:setContentMaximumHeight(230)
 local xpWindow = UI.createMiniWindow("XPAnalyzer")
 xpWindow:hide()
 xpWindow:setContentMaximumHeight(230)
@@ -213,23 +225,20 @@ end
 mainWindow.contentsPanel.SupplyAnalyzer.onClick = function()
     toggleAnalyzer(supplyWindow)
 end
-mainWindow.contentsPanel.ImpactAnalyzer.onClick = function()
-    toggleAnalyzer(impactWindow)
+mainWindow.contentsPanel.DamageDealtAnalyzer.onClick = function()
+    toggleAnalyzer(dealtWindow)
+end
+mainWindow.contentsPanel.DamageTakenAnalyzer.onClick = function()
+    toggleAnalyzer(takenWindow)
+end
+mainWindow.contentsPanel.HealingAnalyzer.onClick = function()
+    toggleAnalyzer(healingWindow)
 end
 mainWindow.contentsPanel.XPAnalyzer.onClick = function()
     toggleAnalyzer(xpWindow)
 end
-mainWindow.contentsPanel.PartyHunt.onClick = function()
-  toggleAnalyzer(partyHuntWindow)
-end
-mainWindow.contentsPanel.DropTracker.onClick = function()
-  toggleAnalyzer(dropTrackerWindow)
-end
 mainWindow.contentsPanel.Stats.onClick = function()
   toggleAnalyzer(statsWindow)
-end
-mainWindow.contentsPanel.BossTracker.onClick = function()
-  toggleAnalyzer(bossWindow)
 end
 
 -- boss tracker
@@ -339,12 +348,9 @@ local xpHourLabel = UI.DualLabel("XP/h:", "0", {}, huntingWindow.contentsPanel).
 local lootLabel = UI.DualLabel("Loot:", "0", {}, huntingWindow.contentsPanel).right
 local suppliesLabel = UI.DualLabel("Supplies:", "0", {}, huntingWindow.contentsPanel).right
 local balanceLabel = UI.DualLabel("Balance:", "0", {}, huntingWindow.contentsPanel).right
-local damageLabel = UI.DualLabel("Damage:", "0", {}, huntingWindow.contentsPanel).right
-local damageHourLabel = UI.DualLabel("Damage/h:", "0", {}, huntingWindow.contentsPanel).right
-local healingLabel = UI.DualLabel("Healing:", "0", {}, huntingWindow.contentsPanel).right
-local healingHourLabel = UI.DualLabel("Healing/h:", "0", {}, huntingWindow.contentsPanel).right
-UI.DualLabel("Killed Monsters:", "", {maxWidth = 200}, huntingWindow.contentsPanel)
-local killedList = UI.createWidget("AnalyzerListPanel", huntingWindow.contentsPanel)
+-- Damage/Healing rows and the Killed Monsters list removed: the 7.72 server
+-- sends no damage-dealt, healing or "Loot of <monster>" messages, so these
+-- could never be tracked and always showed 0/empty.
 UI.DualLabel("Looted items:", "", {maxWidth = 200}, huntingWindow.contentsPanel)
 local lootList = UI.createWidget("AnalyzerListPanel", huntingWindow.contentsPanel)
 
@@ -540,29 +546,52 @@ local supplyGraph = UI.createWidget("AnalyzerGraph", supplyWindow.contentsPanel)
 
 
 
--- impact
+-- impact (split across three panels: Damage Dealt / Damage Taken / Healing)
+-- On 7.72 the bot only sees three combat signals, so every figure here is an
+-- approximation built from what the protocol actually exposes to the client:
+--   * Damage dealt : APPROX. We have no "you deal X damage" message, so we read
+--                    the floating damage numbers the server makes pop over the
+--                    creatures around us. The animated-text colour is NOT given
+--                    to Lua, so we can't perfectly tell our own hits from another
+--                    hunter's - it's a "damage happening near me" estimate.
+--   * Damage taken : EXACT. Parsed from "You lose N hitpoints due to an attack
+--                    by <monster>" (TALK_STATUS_MESSAGE), which also feeds the
+--                    per-monster breakdown below.
+--   * Healing      : APPROX. Any positive change in our own HP (the 0x60 stats
+--                    packet). We don't try to separate spell/potion healing from
+--                    natural regeneration - any HP we gain counts.
 
---- damage
-local title = UI.DualLabel("Damage", "", {}, impactWindow.contentsPanel).left
-title:setColor('#E3242B')
-local totalDamageLabel = UI.DualLabel("Total:", "0", {}, impactWindow.contentsPanel).right
-local maxDpsLabel = UI.DualLabel("Max-DPS:", "0", {}, impactWindow.contentsPanel).right
-local bestHitLabel = UI.DualLabel("All-Time High:", "0", {}, impactWindow.contentsPanel).right
-UI.Separator(impactWindow.contentsPanel)
-local dmgGraph = UI.createWidget("AnalyzerGraph", impactWindow.contentsPanel)
+--- damage dealt (approx) -> Damage Dealt panel
+local titleDealt = UI.DualLabel("Damage Dealt (approx)", "", {maxWidth = 200}, dealtWindow.contentsPanel).left
+titleDealt:setColor('#E3242B')
+local totalDamageLabel = UI.DualLabel("Total:", "0", {}, dealtWindow.contentsPanel).right
+local maxDpsLabel = UI.DualLabel("Max-DPS:", "0", {}, dealtWindow.contentsPanel).right
+local bestHitLabel = UI.DualLabel("Hardest Hit:", "0", {}, dealtWindow.contentsPanel).right
+UI.Separator(dealtWindow.contentsPanel)
+local dmgGraph = UI.createWidget("AnalyzerGraph", dealtWindow.contentsPanel)
       dmgGraph:setTitle("DPS")
       drawGraph(dmgGraph, 0)
-      
-      
---- distribution 
-UI.Separator(impactWindow.contentsPanel)
-local title2 = UI.DualLabel("Damage Distribution", "", {maxWidth = 150}, impactWindow.contentsPanel).left
+
+--- damage taken -> Damage Taken panel
+local titleTaken = UI.DualLabel("Damage Taken", "", {}, takenWindow.contentsPanel).left
+titleTaken:setColor('#FF7F00')
+local totalTakenLabel = UI.DualLabel("Total:", "0", {}, takenWindow.contentsPanel).right
+local maxDtpsLabel = UI.DualLabel("Max/s:", "0", {}, takenWindow.contentsPanel).right
+local worstHitLabel = UI.DualLabel("Hardest Hit:", "0", {}, takenWindow.contentsPanel).right
+UI.Separator(takenWindow.contentsPanel)
+local takenGraph = UI.createWidget("AnalyzerGraph", takenWindow.contentsPanel)
+      takenGraph:setTitle("Damage Taken/s")
+      drawGraph(takenGraph, 0)
+
+--- distribution -> Damage Taken panel
+UI.Separator(takenWindow.contentsPanel)
+local title2 = UI.DualLabel("Damage Taken by Monster", "", {maxWidth = 200}, takenWindow.contentsPanel).left
 title2:setColor('#FABD02')
-local top1 = UI.DualLabel("-", "0", {maxWidth = 200}, impactWindow.contentsPanel)
-local top2 = UI.DualLabel("-", "0", {maxWidth = 200}, impactWindow.contentsPanel)
-local top3 = UI.DualLabel("-", "0", {maxWidth = 200}, impactWindow.contentsPanel)
-local top4 = UI.DualLabel("-", "0", {maxWidth = 200}, impactWindow.contentsPanel)
-local top5 = UI.DualLabel("-", "0", {maxWidth = 200}, impactWindow.contentsPanel)
+local top1 = UI.DualLabel("-", "0", {maxWidth = 200}, takenWindow.contentsPanel)
+local top2 = UI.DualLabel("-", "0", {maxWidth = 200}, takenWindow.contentsPanel)
+local top3 = UI.DualLabel("-", "0", {maxWidth = 200}, takenWindow.contentsPanel)
+local top4 = UI.DualLabel("-", "0", {maxWidth = 200}, takenWindow.contentsPanel)
+local top5 = UI.DualLabel("-", "0", {maxWidth = 200}, takenWindow.contentsPanel)
 
 top1.left:setWidth(135)
 top2.left:setWidth(135)
@@ -570,24 +599,16 @@ top3.left:setWidth(135)
 top4.left:setWidth(135)
 top5.left:setWidth(135)
 
-
---- healing
-UI.Separator(impactWindow.contentsPanel)
-local title3 = UI.DualLabel("Healing", "", {}, impactWindow.contentsPanel).left
+--- healing (approx) -> Healing panel
+local title3 = UI.DualLabel("Healing (approx)", "", {}, healingWindow.contentsPanel).left
 title3:setColor('#03C04A')
-local totalHealingLabel = UI.DualLabel("Total:", "0", {}, impactWindow.contentsPanel).right
-local maxHpsLabel = UI.DualLabel("Max-HPS:", "0", {}, impactWindow.contentsPanel).right
-local bestHealLabel = UI.DualLabel("All-Time High:", "0", {}, impactWindow.contentsPanel).right
-UI.Separator(impactWindow.contentsPanel)
---//graph
-local healGraph = UI.createWidget("AnalyzerGraph", impactWindow.contentsPanel)
+local totalHealingLabel = UI.DualLabel("Total:", "0", {}, healingWindow.contentsPanel).right
+local maxHpsLabel = UI.DualLabel("Max-HPS:", "0", {}, healingWindow.contentsPanel).right
+local bestHealLabel = UI.DualLabel("Best Tick:", "0", {}, healingWindow.contentsPanel).right
+UI.Separator(healingWindow.contentsPanel)
+local healGraph = UI.createWidget("AnalyzerGraph", healingWindow.contentsPanel)
       healGraph:setTitle("HPS")
-      drawGraph(healGraph, 0)  
-
-
-
-
-
+      drawGraph(healGraph, 0)
 
 
 --xp
@@ -1015,9 +1036,11 @@ resetAnalyzerSessionData = function()
     launchTime = now
     startExp = exp()
     dmgTable = {}
+    dmgTakenTable = {}
     healTable = {}
     expTable = {}
     totalDmg = 0
+    totalDmgTaken = 0
     totalHeal = 0
     dmgDistribution = {}
     first = {l="-", r="0"}
@@ -1038,6 +1061,8 @@ resetAnalyzerSessionData = function()
     drawGraph(supplyGraph, 0)
     dmgGraph:clear()
     drawGraph(dmgGraph, 0)
+    takenGraph:clear()
+    drawGraph(takenGraph, 0)
     healGraph:clear()
     drawGraph(healGraph, 0)
     killList = {}
@@ -1212,51 +1237,88 @@ local sumT = function(t)
     return s
 end
 
+-- Per-second rate over a fixed trailing window. We sum every sample that
+-- landed in the last WINDOW_MS and divide by the window length in seconds.
+-- IMPORTANT: divide by the *fixed* window, never by "time since first sample".
+-- Dividing by the elapsed-since-first interval makes a single recent hit look
+-- like a full second of damage (e.g. one 7-damage hit / 0.02s = 350/s), which
+-- is what produced the absurd Max/s figures.
+local RATE_WINDOW_MS = 3000
 local valueInSeconds = function(t)
     local d = 0
-    local time = 0
-    if #t > 0 then
-        for i, v in ipairs(t) do
-            if now - v.t <= 3000 then
-                if time == 0 then
-                    time = v.t
-                end
-                d = d + v.d
-            else
-              table.remove(t, 1)
-            end
+    local i = 1
+    while i <= #t do
+        if now - t[i].t <= RATE_WINDOW_MS then
+            d = d + t[i].d
+            i = i + 1
+        else
+            -- entries are appended chronologically, so anything outside the
+            -- window is stale and can be pruned.
+            table.remove(t, i)
         end
     end
-    return math.ceil(d/((now-time)/1000))
+    return math.floor(d / (RATE_WINDOW_MS / 1000))
 end
 
 local regex = "You lose ([0-9]*) hitpoints due to an attack by ([a-z]*) ([a-z A-z-]*)" 
 onTextMessage(function(mode, text)
-  local value = getFirstNumberInText(text)
-    if mode == 21 then -- damage dealt
-      totalDmg = totalDmg + value
-        table.insert(dmgTable, {d = value, t = now})
-        if value > storage.bestHit then
-            storage.bestHit = value
-        end
-    end
-    if mode == 23 then -- healing
-      totalHeal = totalHeal + value
-        table.insert(healTable, {d = value, t = now})
-        if value > storage.bestHeal then
-            storage.bestHeal = value
-        end
-    end
-
-    -- damage distribution part
+    -- Damage taken: exact, from the status message. Feeds the "Damage Taken"
+    -- total/graph AND the per-monster distribution below.
     if text:find("You lose") then
       local data = regexMatch(text, regex)[1]
       if data then
+        local val = tonumber(data[2]) or 0
         local monster = data[4]
-        local val = data[2]
-        table.insert(dmgDistribution, {v=val,m=monster,t=now})
+        if val > 0 then
+          totalDmgTaken = totalDmgTaken + val
+          table.insert(dmgTakenTable, {d = val, t = now})
+          if val > storage.worstHit then
+            storage.worstHit = val
+          end
+          table.insert(dmgDistribution, {v=val, m=monster, t=now})
+        end
       end
     end
+end)
+
+-- Damage dealt: APPROX. We have no "you deal X" message on 7.72, so we read the
+-- floating damage numbers that pop over the creatures around us. The animated
+-- text colour isn't exposed to Lua, so we filter by position: numbers on our
+-- own tile are damage we TOOK (already handled above) and are ignored here;
+-- everything else is treated as damage happening to nearby creatures.
+onAnimatedText(function(thing, text)
+  local value = tonumber((tostring(text):gsub("%D", "")))
+  if not value or value <= 0 then return end
+
+  local tpos = thing and thing.getPosition and thing:getPosition()
+  if not tpos then return end
+  local ppos = player:getPosition()
+  if tpos.z ~= ppos.z then return end
+  -- ignore numbers on our own tile (that's damage we took)
+  if tpos.x == ppos.x and tpos.y == ppos.y then return end
+
+  totalDmg = totalDmg + value
+  table.insert(dmgTable, {d = value, t = now})
+  if value > storage.bestHit then
+    storage.bestHit = value
+  end
+end)
+
+-- Healing: APPROX. Any positive change to our own HP (0x60 stats packet) counts
+-- as healing; we don't separate spell/potion healing from natural regeneration.
+local lastHp = nil
+macro(100, function()
+  local cur = hp()
+  if lastHp == nil then lastHp = cur return end
+  if cur > lastHp then
+    local healed = cur - lastHp
+    totalHeal = totalHeal + healed
+    table.insert(healTable, {d = healed, t = now})
+    if healed > storage.bestHeal then
+      storage.bestHeal = healed
+    end
+  end
+  lastHp = cur
 end)
 
 function capitalFistLetter(str)
@@ -1368,18 +1430,7 @@ end
 refreshLoot()
 
 function refreshKills()
-    killedList:destroyChildren()
-    local kills = 0
-    for k,v in pairs(killList) do
-      kills = kills + 1
-      local label = UI.createWidget("ListLabel", killedList)
-      label:setText(v .. "x " .. k)
-    end
-
-    if kills == 0 then
-      local label = UI.createWidget("ListLabel", killedList)
-      label:setText("None")
-    end
+    -- Killed-monsters list removed (no "Loot of <monster>" messages on 7.72).
 end
 refreshKills()
 
@@ -1635,17 +1686,20 @@ end
 --bestdps/hps
 local bestDPS = 0
 local bestHPS = 0
+local bestDtps = 0
 --main loop
 macro(500, function()
     local lootWorth, wasteWorth, balance = bottingStats()
     local balanceDesc, hourDesc = bottingLabels(lootWorth, wasteWorth, balance)
 
-    -- hps and dps
+    -- per-second rates (dealt / healed / taken)
     local curHPS = valueInSeconds(healTable)
     local curDPS = valueInSeconds(dmgTable)
+    local curDtps = valueInSeconds(dmgTakenTable)
 
     bestHPS = bestHPS > curHPS and bestHPS or curHPS
     bestDPS = bestDPS > curDPS and bestDPS or curDPS
+    bestDtps = bestDtps > curDtps and bestDtps or curDtps
 
     --hunt window
     sessionTimeLabel:setText(sessionTime())
@@ -1655,10 +1709,6 @@ macro(500, function()
     suppliesLabel:setText(format_thousand(wasteWorth))
     balanceLabel:setColor(balance >= 0 and "#45ad25" or "#ff9854")
     balanceLabel:setText(balanceDesc .. " (" .. hourDesc .. ")")
-    damageLabel:setText(format_thousand(totalDmg))
-    damageHourLabel:setText(format_thousand(damageHour()))
-    healingLabel:setText(format_thousand(totalHeal))
-    healingHourLabel:setText(format_thousand(healHour()))
 
     --loot window
     lootInLootAnalyzerLabel:setText(format_thousand(lootWorth))
@@ -1670,10 +1720,17 @@ macro(500, function()
     suppliesHourInSuppliesAnalyzerLabel:setText(format_thousand(wasteHour()))
 
     --impact window
+    -- damage dealt (approx)
     totalDamageLabel:setText(format_thousand(totalDmg))
     maxDpsLabel:setText(format_thousand(bestDPS))
-    bestHitLabel:setText(storage.bestHit)
+    bestHitLabel:setText(format_thousand(storage.bestHit))
 
+    -- damage taken
+    totalTakenLabel:setText(format_thousand(totalDmgTaken))
+    maxDtpsLabel:setText(format_thousand(bestDtps))
+    worstHitLabel:setText(format_thousand(storage.worstHit))
+
+    -- damage taken by monster (distribution)
     top1.left:setText(first.l)
     top1.right:setText(first.r)
     top2.left:setText(second.l)
@@ -1685,9 +1742,10 @@ macro(500, function()
     top5.left:setText(five.l)
     top5.right:setText(five.r)
 
+    -- healing (approx)
     totalHealingLabel:setText(format_thousand(totalHeal))
     maxHpsLabel:setText(format_thousand(bestHPS))
-    bestHealLabel:setText(storage.bestHeal)
+    bestHealLabel:setText(format_thousand(storage.bestHeal))
 
     --xp window
     xpGrainInXpLabel:setText(format_thousand(expGained()))
@@ -1712,6 +1770,7 @@ macro(60*1000, function()
   drawGraph(lootGraph, lootHour() or 0)
   drawGraph(supplyGraph, wasteHour() or 0)
   drawGraph(dmgGraph, valueInSeconds(dmgTable) or 0)
+  drawGraph(takenGraph, valueInSeconds(dmgTakenTable) or 0)
   drawGraph(healGraph, valueInSeconds(healTable) or 0)
 end)
 

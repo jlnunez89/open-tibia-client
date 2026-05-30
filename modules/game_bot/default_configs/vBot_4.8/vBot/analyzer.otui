@@ -257,7 +257,7 @@ AnalyzerButton < Button
 MainAnalyzerWindow < MiniWindow
   id: MainAnalyzerWindow
   text: Analytics Selector
-  height: 293
+  height: 263
   icon: /images/topbuttons/analyzers
 
   MiniWindowContents
@@ -279,31 +279,25 @@ MainAnalyzerWindow < MiniWindow
       text: Supply Analyzer    
   
     AnalyzerButton
-      id: ImpactAnalyzer
-      text: Impact Analyzer
+      id: DamageDealtAnalyzer
+      text: Damage Dealt
+
+    AnalyzerButton
+      id: DamageTakenAnalyzer
+      text: Damage Taken
+
+    AnalyzerButton
+      id: HealingAnalyzer
+      text: Healing
 
     AnalyzerButton
       id: XPAnalyzer
       text: XP Analyzer
 
     AnalyzerButton
-      id: DropTracker
-      text: Drop Tracker
-
-    AnalyzerButton
       id: Stats
       text: CaveBot Stats
       color: #74B73E
-
-    AnalyzerButton
-      id: PartyHunt
-      text: Party Hunt
-      color: #3895D3
-
-    AnalyzerButton
-      id: BossTracker
-      text: Boss Cooldowns
-      color: #df3afb
 
     AnalyzerButton
       id: Settings
@@ -342,9 +336,27 @@ SupplyAnalyzer < MiniWindow
     padding-top: 3
     layout: verticalBox
 
-ImpactAnalyzer < MiniWindow
-  id: ImpactAnalyzerWindow    
-  text: Impact Analyzer
+DamageDealtAnalyzer < MiniWindow
+  id: DamageDealtAnalyzerWindow
+  text: Damage Dealt
+  icon: /images/topbuttons/analyzers
+
+  MiniWindowContents
+    padding-top: 3
+    layout: verticalBox
+
+DamageTakenAnalyzer < MiniWindow
+  id: DamageTakenAnalyzerWindow
+  text: Damage Taken
+  icon: /images/topbuttons/analyzers
+
+  MiniWindowContents
+    padding-top: 3
+    layout: verticalBox
+
+HealingAnalyzer < MiniWindow
+  id: HealingAnalyzerWindow
+  text: Healing
   icon: /images/topbuttons/analyzers
 
   MiniWindowContents

@@ -119,6 +119,7 @@ addCheckBox("pathfinding", "CaveBot Pathfinding", true, leftPanel, "Cavebot will
 addScrollBar("talkDelay", "Global NPC Talk Delay", 0, 2000, 1000, leftPanel, "Breaks between each talk action in cavebot (time in miliseconds).")
 addScrollBar("looting", "Max Loot Distance", 0, 50, 40, leftPanel, "Every loot corpse futher than set distance (in sqm) will be ignored and forgotten.")
 addScrollBar("lootDelay", "Loot Delay", 0, 1000, 200, leftPanel, "Wait time for loot container to open. Lower value means faster looting. \n WARNING if you are having looting issues(e.g. container is locked in closing/opnening), increase this value.")
+addScrollBar("lootContainerClose", "Close Looted Corpse After", 0, 120, 30, leftPanel, "Seconds to wait before auto-closing an already looted corpse container. Prevents corpses from piling up while standing still. The server still closes them when you walk away.")
 addScrollBar("huntRoutes", "Hunting Rounds Limit", 0, 300, 50, leftPanel, "Round limit for supply check, if character already made more rounds than set, on next supply check will return to city.")
 addScrollBar("killUnder", "Kill monsters below", 0, 100, 1, leftPanel, "Force TargetBot to kill added creatures when they are below set percentage of health - will ignore all other TargetBot settings.")
 addScrollBar("gotoMaxDistance", "Max GoTo Distance", 0, 127, 30, leftPanel, "Maximum distance to next goto waypoint for the bot to try to reach.")
@@ -353,32 +354,25 @@ end
 addCheckBox("checkPlayer", "Check Players", true, rightPanel, "Auto look on players and mark level and vocation on character model")
 if true then
   local found
-  local function checkPlayers()
+  -- Throttled: look at AT MOST one unmarked player per tick (~1/sec) instead
+  -- of machine-gunning a look packet at every spectator the instant we enter a
+  -- crowded area. That old behaviour spammed the server and was obviously
+  -- non-human. The marking still happens via the onTextMessage handler below.
+  local function nextUnmarked()
     for i, spec in ipairs(getSpectators()) do
       if spec:isPlayer() and spec:getText() == "" and spec:getPosition().z == posz() and spec ~= player then
-          g_game.look(spec)
-          found = now
+        return spec
       end
     end
-  end
-  if settings.checkPlayer then 
-    schedule(500, function()
-      checkPlayers()
-    end)
+    return nil
   end
 
-  onPlayerPositionChange(function(x,y)
+  macro(1000, function()
     if not settings.checkPlayer then return end
-    if x.z ~= y.z then
-      schedule(20, function() checkPlayers() end)
-    end
-  end)
-
-  onCreatureAppear(function(creature)
-    if not settings.checkPlayer then return end
-    if creature:isPlayer() and creature:getText() == "" and creature:getPosition().z == posz() and creature ~= player then
-        g_game.look(creature)
-        found = now
+    local spec = nextUnmarked()
+    if spec then
+      g_game.look(spec)
+      found = now
     end
   end)
 

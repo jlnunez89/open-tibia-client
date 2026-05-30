@@ -67,6 +67,14 @@ local function overloadReposition()
   end
   local maxA = humanize.maxAttackers and humanize.maxAttackers() or 4
   if #attackers <= maxA then return end
+  -- Chance gate: even when overcrowded, only reposition some of the time so the
+  -- step-away isn't perfectly predictable. A failed roll still consumes the
+  -- cooldown so the chance is evaluated once per opportunity, not every tick.
+  local chance = humanize.repositionChance and humanize.repositionChance() or 100
+  if math.random(0, 99) >= chance then
+    lastOverloadReposition = now
+    return
+  end
   local sx, sy = 0, 0
   for _, p in ipairs(attackers) do sx = sx + p.x; sy = sy + p.y end
   local cx, cy = sx / #attackers, sy / #attackers

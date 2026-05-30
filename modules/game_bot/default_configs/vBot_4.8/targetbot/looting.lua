@@ -265,7 +265,22 @@ TargetBot.Looting.lootContainer = function(lootContainers, container, noCap)
   
   -- looting finished, remove container from list
   container.lootContainer = false
-  -- g_game.close(container) -- don't close — let it close naturally when walking away
+  -- Auto-close the looted corpse after a delay. When walking around the server
+  -- closes corpses for us, but while standing still they pile up forever. We
+  -- schedule a delayed close (configurable, default 30s) and guard against the
+  -- container already being gone so we never close the wrong window.
+  local closeSeconds = tonumber(storage.extras.lootContainerClose) or 30
+  if closeSeconds > 0 then
+    local toClose = container
+    schedule(closeSeconds * 1000, function()
+      for _, openContainer in pairs(g_game.getContainers()) do
+        if openContainer == toClose then
+          g_game.close(toClose)
+          break
+        end
+      end
+    end)
+  end
   table.remove(TargetBot.Looting.list, storage.extras.lootLast and #TargetBot.Looting.list or 1) 
 end
 

@@ -137,7 +137,20 @@ function refresh()
   
   -- get list of configs
   createDefaultConfigs()
-  local configs = g_resources.listDirectoryFiles("/bot", false, false)  
+  local configs = g_resources.listDirectoryFiles("/bot", false, false)
+
+  -- This client is tailored to vBot 4.8. Hide the legacy default configs
+  -- (cavebot_1.3 / vBot_4.7) so nobody accidentally runs an incompatible bot.
+  -- They were removed from default_configs, but a user's /bot may still hold
+  -- copies from a previous install, so filter them out here too.
+  local hiddenConfigs = { ["cavebot_1.3"] = true, ["vBot_4.7"] = true }
+  local filtered = {}
+  for i = 1, #configs do
+    if not hiddenConfigs[configs[i]] then
+      table.insert(filtered, configs[i])
+    end
+  end
+  configs = filtered
   
   -- clean
   configList.onOptionChange = nil
