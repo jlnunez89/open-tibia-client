@@ -108,17 +108,18 @@ local huntingWindow = UI.createMiniWindow("HuntingAnalyzer")
 huntingWindow:hide()
 local lootWindow = UI.createMiniWindow("LootAnalyzer")
 lootWindow:hide()
+lootWindow:setContentMaximumHeight(230)
 local supplyWindow = UI.createMiniWindow("SupplyAnalyzer")
 supplyWindow:hide()
 local dealtWindow = UI.createMiniWindow("DamageDealtAnalyzer")
 dealtWindow:hide()
-dealtWindow:setContentMaximumHeight(230)
+dealtWindow:setContentMaximumHeight(240)
 local takenWindow = UI.createMiniWindow("DamageTakenAnalyzer")
 takenWindow:hide()
-takenWindow:setContentMaximumHeight(330)
+takenWindow:setContentMaximumHeight(380)
 local healingWindow = UI.createMiniWindow("HealingAnalyzer")
 healingWindow:hide()
-healingWindow:setContentMaximumHeight(230)
+healingWindow:setContentMaximumHeight(240)
 local xpWindow = UI.createMiniWindow("XPAnalyzer")
 xpWindow:hide()
 xpWindow:setContentMaximumHeight(230)
@@ -600,7 +601,7 @@ top4.left:setWidth(135)
 top5.left:setWidth(135)
 
 --- healing (approx) -> Healing panel
-local title3 = UI.DualLabel("Healing (approx)", "", {}, healingWindow.contentsPanel).left
+local title3 = UI.DualLabel("Healing (approx)", "", {maxWidth = 200}, healingWindow.contentsPanel).left
 title3:setColor('#03C04A')
 local totalHealingLabel = UI.DualLabel("Total:", "0", {}, healingWindow.contentsPanel).right
 local maxHpsLabel = UI.DualLabel("Max-HPS:", "0", {}, healingWindow.contentsPanel).right
@@ -759,7 +760,7 @@ local expPerHour = function(calculation)
   if calculation then
       return r
   else
-      return format_thousand(r)
+      return format_thousand(r, true)
   end
 end
 
@@ -789,7 +790,7 @@ local function sendData()
       lootWorth, 
       wasteWorth,
       modules.game_skills.skillsWindow.contentsPanel.stamina.value:getText(),
-      format_thousand(expGained()),
+      format_thousand(expGained(), true),
       expPerHour(),
       balanceDesc .. " (" .. hourDesc .. ")",
       sessionTime()
@@ -858,7 +859,7 @@ if BotServer._websocket then
       widget.health:setBackgroundColor("#00c000")
       widget.mana:setPercent(t.mana)
       widget.mana:setBackgroundColor("#0000FF")
-      widget.balance.value:setText(format_thousand(t.balance))
+      widget.balance.value:setText(format_thousand(t.balance, true))
       if t.balance < 0 then
         widget.balance.value:setColor('#ff9854')
       elseif t.balance > 0 then
@@ -866,8 +867,8 @@ if BotServer._websocket then
       else
         widget.balance.value:setColor('white')
       end
-      widget.damage.value:setText(format_thousand(t.damage))
-      widget.healing.value:setText(format_thousand(t.heal))
+      widget.damage.value:setText(format_thousand(t.damage, true))
+      widget.healing.value:setText(format_thousand(t.heal, true))
 
       widget.onDoubleClick = function()
         membersData[name] = nil
@@ -1416,7 +1417,7 @@ function refreshLoot()
       label1.count:setText(niceFormat(v.count))
       label1.count:setColor(getColor(price))
       local tooltipName = v.count > 1 and v.name.."s" or v.name
-      label1:setTooltip(v.count .. "x " .. tooltipName .. " (Value: "..format_thousand(getPrice(v.name)).."gp, Sum: "..format_thousand(price).."gp)")
+      label1:setTooltip(v.count .. "x " .. tooltipName .. " (Value: "..format_thousand(getPrice(v.name), true).."gp, Sum: "..format_thousand(price, true).."gp)")
       --hunting window loot list
       local label2 = UI.createWidget("ListLabel", lootList)
       label2:setText(v.count .. "x " .. v.name)
@@ -1457,7 +1458,7 @@ function refreshWaste()
         label1.count:setText(niceFormat(amount))
         label1.count:setColor(getColor(price))
         local tooltipName = amount > 1 and v.name.."s" or v.name
-        label1:setTooltip(amount .. "x " .. tooltipName .. " (Value: "..format_thousand(getPrice(v.name)).."gp, Sum: "..format_thousand(price).."gp)")
+        label1:setTooltip(amount .. "x " .. tooltipName .. " (Value: "..format_thousand(getPrice(v.name), true).."gp, Sum: "..format_thousand(price, true).."gp)")
       end
     end
 end
@@ -1621,7 +1622,7 @@ function reportStats()
 
   local a, b, c
 
-  a = "Session Time: " .. sessionTime() .. ", Exp Gained: " .. format_thousand(expGained()) .. ", Exp/h: " .. expPerHour()
+  a = "Session Time: " .. sessionTime() .. ", Exp Gained: " .. format_thousand(expGained(), true) .. ", Exp/h: " .. expPerHour()
   b = " | Balance: " .. balanceDesc .. " (" .. hourDesc .. ")"
   c = a..b
 
@@ -1703,32 +1704,32 @@ macro(500, function()
 
     --hunt window
     sessionTimeLabel:setText(sessionTime())
-    xpGainLabel:setText(format_thousand(expGained()))
+    xpGainLabel:setText(format_thousand(expGained(), true))
     xpHourLabel:setText(expPerHour())
-    lootLabel:setText(format_thousand(lootWorth))
-    suppliesLabel:setText(format_thousand(wasteWorth))
+    lootLabel:setText(format_thousand(lootWorth, true))
+    suppliesLabel:setText(format_thousand(wasteWorth, true))
     balanceLabel:setColor(balance >= 0 and "#45ad25" or "#ff9854")
     balanceLabel:setText(balanceDesc .. " (" .. hourDesc .. ")")
 
     --loot window
-    lootInLootAnalyzerLabel:setText(format_thousand(lootWorth))
-    lootHourInLootAnalyzerLabel:setText(format_thousand(lootHour()))
+    lootInLootAnalyzerLabel:setText(format_thousand(lootWorth, true))
+    lootHourInLootAnalyzerLabel:setText(format_thousand(lootHour(), true))
 
 
     --supply window
-    suppliesInSuppliesAnalyzerLabel:setText(format_thousand(wasteWorth))
-    suppliesHourInSuppliesAnalyzerLabel:setText(format_thousand(wasteHour()))
+    suppliesInSuppliesAnalyzerLabel:setText(format_thousand(wasteWorth, true))
+    suppliesHourInSuppliesAnalyzerLabel:setText(format_thousand(wasteHour(), true))
 
     --impact window
     -- damage dealt (approx)
-    totalDamageLabel:setText(format_thousand(totalDmg))
-    maxDpsLabel:setText(format_thousand(bestDPS))
-    bestHitLabel:setText(format_thousand(storage.bestHit))
+    totalDamageLabel:setText(format_thousand(totalDmg, true))
+    maxDpsLabel:setText(format_thousand(bestDPS, true))
+    bestHitLabel:setText(format_thousand(storage.bestHit, true))
 
     -- damage taken
-    totalTakenLabel:setText(format_thousand(totalDmgTaken))
-    maxDtpsLabel:setText(format_thousand(bestDtps))
-    worstHitLabel:setText(format_thousand(storage.worstHit))
+    totalTakenLabel:setText(format_thousand(totalDmgTaken, true))
+    maxDtpsLabel:setText(format_thousand(bestDtps, true))
+    worstHitLabel:setText(format_thousand(storage.worstHit, true))
 
     -- damage taken by monster (distribution)
     top1.left:setText(first.l)
@@ -1743,13 +1744,13 @@ macro(500, function()
     top5.right:setText(five.r)
 
     -- healing (approx)
-    totalHealingLabel:setText(format_thousand(totalHeal))
-    maxHpsLabel:setText(format_thousand(bestHPS))
-    bestHealLabel:setText(format_thousand(storage.bestHeal))
+    totalHealingLabel:setText(format_thousand(totalHeal, true))
+    maxHpsLabel:setText(format_thousand(bestHPS, true))
+    bestHealLabel:setText(format_thousand(storage.bestHeal, true))
 
     --xp window
-    xpGrainInXpLabel:setText(format_thousand(expGained()))
-    xpHourInXpLabel:setText(expPerHour())
+    xpGrainInXpLabel:setText(format_thousand(expGained(), true))
+    xpHourInXpLabel:setText(expPerHour(), true)
     nextLevelLabel:setText(timeToLevel())
     progressBar:setPercent(modules.game_skills.skillsWindow.contentsPanel.level.percent:getPercent())
 
@@ -1786,9 +1787,9 @@ macro(2000, function()
   local totalWaste, totalLoot, totalBalance = getSumStats()
 
   partySessionTimeLabel:setText(sessionTime())
-  partyLootLabel:setText(format_thousand(totalLoot))
-  partySuppliesLabel:setText(format_thousand(totalWaste))
-  partyBalanceLabel:setText(format_thousand(totalBalance))
+  partyLootLabel:setText(format_thousand(totalLoot, true))
+  partySuppliesLabel:setText(format_thousand(totalWaste, true))
+  partyBalanceLabel:setText(format_thousand(totalBalance, true))
 
   if totalBalance < 0 then
     partyBalanceLabel:setColor('#ff9854')

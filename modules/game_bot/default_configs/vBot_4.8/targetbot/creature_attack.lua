@@ -3,49 +3,8 @@ local targetCount = 0
 local delayValue = 0
 local lureMax = 0
 local anchorPosition = nil
-local lastCall = now
 local delayFrom = nil
 local dynamicLureDelay = false
-
-function getWalkableTilesCount(position)
-  local count = 0
-
-  for i, tile in pairs(getNearTiles(position)) do
-      if tile:isWalkable() or tile:hasCreature() then
-          count = count + 1
-      end
-  end
-
-  return count
-end
-
-function rePosition(minTiles)
-  minTiles = minTiles or 8
-  if now - lastCall < 500 then return end
-  local pPos = player:getPosition()
-  local tiles = getNearTiles(pPos)
-  local playerTilesCount = getWalkableTilesCount(pPos)
-  local tilesTable = {}
-
-  if playerTilesCount > minTiles then return end
-  for i, tile in ipairs(tiles) do
-      tilesTable[tile] = not tile:hasCreature() and tile:isWalkable() and getWalkableTilesCount(tile:getPosition()) or nil
-  end
-
-  local best = 0
-  local target = nil
-  for k,v in pairs(tilesTable) do
-      if v > best and v > playerTilesCount then
-          best = v
-          target = k:getPosition()
-      end
-  end
-
-  if target then
-      lastCall = now
-      return CaveBot.GoTo(target, 0)
-  end
-end
 
 local attackJitterFor = nil
 local attackJitterUntil = 0
@@ -237,10 +196,13 @@ TargetBot.Creature.walk = function(creature, config, targets)
   end
 
   local currentDistance = findPath(pos, cpos, 10, {ignoreCreatures=true, ignoreNonPathable=true, ignoreCost=true})
-  if (not config.chase or #currentDistance == 1) and not config.avoidAttacks and not config.keepDistance and config.rePosition and (creature:getHealthPercent() >= storage.extras.killUnder) then
-    return rePosition(config.rePositionAmount or 6)
-  end
-  if ((storage.extras.killUnder > 1 and (creature:getHealthPercent() < storage.extras.killUnder)) or config.chase) and not config.keepDistance then
+  -- Chase override: while there are still reachable corpses queued for looting,
+  -- don't chase the next live target. This stops the character from oscillating
+  -- between walking to a fresh corpse (looting) and chasing a mob a few tiles
+  -- away. Forced kills (killUnder) are unaffected.
+  local killUnder = storage.extras.killUnder or 1
+  local chaseActive = config.chase and not TargetBot.Looting.hasReachableLoot()
+  if ((killUnder > 1 and (creature:getHealthPercent() < killUnder)) or chaseActive) and not config.keepDistance then
     if #currentDistance > 1 then
       return TargetBot.walkTo(cpos, 10, {ignoreNonPathable=true, precision=1})
     end

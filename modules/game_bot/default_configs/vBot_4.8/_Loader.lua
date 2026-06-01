@@ -46,6 +46,7 @@ local luaFiles = {
   "eat_food",
   "auto_light",
   "auto_fish",
+  "auto_stop",
   "equip",
   -- "exeta", -- removed: uses game_cooldown module (8.0+)
   "monster_data",   -- generated 7.7 monster stats (load before monster_threat)

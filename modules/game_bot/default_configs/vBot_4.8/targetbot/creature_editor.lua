@@ -86,8 +86,21 @@ TargetBot.Creature.edit = function(config, callback) -- callback = function(newC
   addScrollBar("lureMax", "Dynamic lure max", 1, 30, 3)
   addScrollBar("lureDelay", "Dynamic lure delay", 100, 1000, 250)
   addScrollBar("delayFrom", "Start delay when monsters", 1, 29, 2)
-  addScrollBar("rePositionAmount", "Min tiles to rePosition", 0, 7, 5)
   addScrollBar("closeLureAmount", "Close Pull Until", 0, 8, 3)
+
+  -- Per-target attack spell/rune tuning (left column = numeric scrollbars).
+  -- These pair with the checkboxes/inputs added to the right column below and
+  -- are consumed by TargetBot.Creature.attack in creature_attack.lua.
+  addScrollBar("minMana", "Atk spell min mana", 0, 2000, 0)
+  addScrollBar("attackSpellDelay", "Atk spell delay (ms)", 0, 5000, 2000)
+  addScrollBar("attackRuneDelay", "Atk rune delay (ms)", 0, 5000, 2000)
+  addScrollBar("minManaGroup", "Group spell min mana", 0, 2000, 0)
+  addScrollBar("groupAttackRadius", "Group spell radius", 1, 10, 3)
+  addScrollBar("groupAttackTargets", "Group spell min targets", 1, 15, 3)
+  addScrollBar("groupAttackDelay", "Group spell delay (ms)", 0, 5000, 2000)
+  addScrollBar("groupRuneAttackRadius", "Group rune radius", 1, 10, 3)
+  addScrollBar("groupRuneAttackTargets", "Group rune min targets", 1, 15, 3)
+  addScrollBar("groupRuneAttackDelay", "Group rune delay (ms)", 0, 5000, 2000)
 
   addCheckBox("chase", "Chase", true)
   addCheckBox("keepDistance", "Keep Distance", false)
@@ -100,7 +113,20 @@ TargetBot.Creature.edit = function(config, callback) -- callback = function(newC
   addCheckBox("dynamicLure", "Dynamic lure", false)
   addCheckBox("dynamicLureDelay", "Dynamic lure delay", false)
   addCheckBox("diamondArrows", "D-Arrows priority", false)
-  addCheckBox("rePosition", "rePosition to better tile", false)
   addCheckBox("closeLure", "Close Pulling Monsters", false)
   addCheckBox("rpSafe", "RP PVP SAFE - (DA)", false)
+
+  -- Per-target attack spell/rune (right column = toggles + spell text + rune
+  -- item). Single-target cast each attack tick; group variants only fire when
+  -- enough monsters are in radius. attackSpellDelay/minMana etc. live above.
+  addCheckBox("useSpellAttack", "Use attack spell", false)
+  addTextEdit("attackSpell", "Attack spell", "")
+  addCheckBox("useRuneAttack", "Use attack rune", false)
+  addItem("attackRune", "Attack rune", 0)
+  addCheckBox("useGroupAttack", "Use group attack spell", false)
+  addTextEdit("groupAttackSpell", "Group attack spell", "")
+  addCheckBox("useGroupAttackRune", "Use group attack rune", false)
+  addItem("groupAttackRune", "Group attack rune", 0)
+  addCheckBox("groupAttackIgnoreParty", "Group: ignore party members", false)
+  addCheckBox("groupAttackIgnorePlayers", "Group: fire even with players near", false)
 end

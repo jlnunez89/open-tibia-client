@@ -354,14 +354,50 @@ end
 addCheckBox("checkPlayer", "Check Players", true, rightPanel, "Auto look on players and mark level and vocation on character model")
 if true then
   local found
-  -- Throttled: look at AT MOST one unmarked player per tick (~1/sec) instead
-  -- of machine-gunning a look packet at every spectator the instant we enter a
-  -- crowded area. That old behaviour spammed the server and was obviously
-  -- non-human. The marking still happens via the onTextMessage handler below.
-  local function nextUnmarked()
+  -- Players we've already looked at, keyed by creature id -> timestamp of the
+  -- look. Prevents re-looking the same person every second (which spams the
+  -- server and is an obvious bot tell) - the old code relied on getText()=="",
+  -- so anyone whose look reply failed to parse (e.g. a vocation wording we
+  -- didn't handle) was re-looked forever. We refresh only after RELOOK_MS in
+  -- case they leveled up or got promoted.
+  local lookedAt = {}
+  local RELOOK_MS = 60000
+
+  -- The vanilla 7.72 client renders a 15x11 tile viewport with the player
+  -- centred, so a player is only actually on our screen when within 7 columns
+  -- and 5 rows. Looking at anyone outside that box sends a look for a creature
+  -- we can't really see - a dead giveaway - so we hard-limit to the viewport.
+  local VIEW_X = 7
+  local VIEW_Y = 5
+
+  local function vocSuffix(t)
+    -- t is the lowercased look text. Promoted names contain the base name, so
+    -- the promoted form MUST be tested first.
+    if t:find("master sorcerer") then return "MS"
+    elseif t:find("sorcerer")     then return "S"
+    elseif t:find("elder druid")  then return "ED"
+    elseif t:find("druid")        then return "D"
+    elseif t:find("elite knight") then return "EK"
+    elseif t:find("knight")       then return "K"
+    elseif t:find("royal paladin") then return "RP"
+    elseif t:find("paladin")      then return "P"
+    end
+    return "" -- "has no vocation"
+  end
+
+  local function nextUnchecked()
+    local ppos = player:getPosition()
     for i, spec in ipairs(getSpectators()) do
-      if spec:isPlayer() and spec:getText() == "" and spec:getPosition().z == posz() and spec ~= player then
-        return spec
+      if spec:isPlayer() and spec ~= player then
+        local pos = spec:getPosition()
+        if pos.z == ppos.z
+            and math.abs(pos.x - ppos.x) <= VIEW_X
+            and math.abs(pos.y - ppos.y) <= VIEW_Y then
+          local last = lookedAt[spec:getId()]
+          if not last or now - last > RELOOK_MS then
+            return spec
+          end
+        end
       end
     end
     return nil
@@ -369,9 +405,15 @@ if true then
 
   macro(1000, function()
     if not settings.checkPlayer then return end
-    local spec = nextUnmarked()
+    -- Drop stale entries so the table stays bounded and players naturally get a
+    -- refreshed look once RELOOK_MS has elapsed.
+    for id, ts in pairs(lookedAt) do
+      if now - ts > RELOOK_MS then lookedAt[id] = nil end
+    end
+    local spec = nextUnchecked()
     if spec then
       g_game.look(spec)
+      lookedAt[spec:getId()] = now -- record regardless of parse success
       found = now
     end
   end)
@@ -390,16 +432,7 @@ if true then
           guild = guild:sub(1,10) -- change to proper (last) values
           guild = guild.."..."
         end
-        local voc
-        if text:lower():find("sorcerer") then
-            voc = "MS"
-        elseif text:lower():find("druid") then
-            voc = "ED"
-        elseif text:lower():find("knight") then
-            voc = "EK"
-        elseif text:lower():find("paladin") then
-            voc = "RP"
-        end
+        local voc = vocSuffix(text:lower())
         local creature = getCreatureByName(name)
         if creature then
             creature:setText("\n"..level..voc.."\n"..guild)

@@ -100,8 +100,47 @@ local waitingForContainer = nil
 local status = ""
 local lastFoodConsumption = 0
 
+-- Throttled, prominent center-screen warning. Looting silently failing (e.g.
+-- destination containers are full) is easy to miss because it only shows as a
+-- tiny status string in the bot panel. We surface the most important blockers
+-- as the same white center text the server uses, but rate-limit per message so
+-- we never spam while the condition persists.
+local lastLootWarn = {}
+local function warnLootBlocked(text)
+  if (lastLootWarn[text] or 0) + 8000 > now then return end
+  lastLootWarn[text] = now
+  pcall(function()
+    if modules and modules.game_textmessage then
+      modules.game_textmessage.displayGameMessage("TargetBot: " .. text)
+    end
+  end)
+end
+
 TargetBot.Looting.getStatus = function()
   return status
+end
+
+-- Returns true when there is at least one corpse still queued for looting that
+-- is on the player's floor, within the configured loot range, and reachable by
+-- a path. Used to suppress TargetBot chasing so the character stays put and
+-- loots instead of oscillating between a fresh corpse and the next live target.
+TargetBot.Looting.hasReachableLoot = function()
+  local list = TargetBot.Looting.list
+  if not list or not list[1] then return false end
+  local pos = player:getPosition()
+  local maxRange = storage.extras.looting or 40
+  for _, loot in ipairs(list) do
+    if loot.pos and loot.pos.z == pos.z then
+      local dist = math.max(math.abs(pos.x - loot.pos.x), math.abs(pos.y - loot.pos.y))
+      if dist <= 1 then
+        return true
+      elseif dist <= maxRange then
+        local path = findPath(pos, loot.pos, maxRange, {ignoreNonPathable=true, ignoreCreatures=true, precision=2})
+        if path then return true end
+      end
+    end
+  end
+  return false
 end
 
 TargetBot.Looting.process = function(targets, dangerLevel)
@@ -131,6 +170,7 @@ TargetBot.Looting.process = function(targets, dangerLevel)
   if not noCap and not lootContainers[1] then
     -- there's no space, don't loot
     status = "No space"
+    warnLootBlocked("no room to loot - free up container space!")
     return false
   end
 
