@@ -46,14 +46,25 @@ local FAIL_TTL_MS = 8000
 local BACKOFF_MIN_MS = 5000
 local BACKOFF_MAX_MS = 5 * 60 * 1000
 
-local FISH_IDS_MIN,  FISH_IDS_MAX  = 4597, 4602
-local WATER_IDS_MIN, WATER_IDS_MAX = 4609, 4614
+local WATER_WITH_FISH_IDS = {
+  [618] = true,                                 
+  [853] = true, [854] = true, [855] = true, [856] = true, [857] = true, [858] = true, [859] = true, [860] = true, [861] = true, [862] = true, [863] = true, [864] = true, 
+  [4597] = true, [4598] = true, [4599] = true, [4600] = true, [4601] = true, [4602] = true,
+  [4809] = true, [4810] = true, [4811] = true, [4812] = true, [4813] = true, [4814] = true, 
+}
+
+local WATER_WITHOUT_FISH_IDS = {
+  [619] = true, [620] = true, [621] = true, [622] = true,
+  [865] = true, [866] = true, [867] = true, [868] = true, [869] = true, 
+  [4603] = true, [4604] = true, [4605] = true, [4606] = true, [4607] = true, [4608] = true, [4609] = true, [4610] = true, [4611] = true, [4612] = true, [4613] = true, [4614] = true,
+  [4653] = true, [4654] = true, [4655] = true, 
+}
 
 local function isFishWaterId(id)
-  return id >= FISH_IDS_MIN and id <= FISH_IDS_MAX
+  return WATER_WITH_FISH_IDS[id] ~= nil
 end
 local function isPlainWaterId(id)
-  return id >= WATER_IDS_MIN and id <= WATER_IDS_MAX
+  return WATER_WITHOUT_FISH_IDS[id] ~= nil
 end
 
 ------------------------------------------------------------------------------

@@ -1766,7 +1766,6 @@ end)
 
 --graphs, draw each minute
 macro(60*1000, function()
-
   drawGraph(xpGraph, expPerHour(true) or 0)
   drawGraph(lootGraph, lootHour() or 0)
   drawGraph(supplyGraph, wasteHour() or 0)
