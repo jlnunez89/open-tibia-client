@@ -279,6 +279,7 @@ edit.unitWeight.onValueChange = function(widget, value) config.unitWeight = valu
 edit.refillAt:setValue(config.refillAt)
 edit.refillAt.onValueChange = function(widget, value) config.refillAt = value end
 
+edit.capBuffer:setStep(10)
 edit.capBuffer:setValue(config.capBuffer)
 edit.capBuffer.onValueChange = function(widget, value) config.capBuffer = value end
 
@@ -291,9 +292,11 @@ edit.walkToRetrieve.onClick = function(widget)
   edit.walkToRetrieve:setChecked(config.walkToRetrieve)
 end
 
+edit.delayMin:setStep(50)
 edit.delayMin:setValue(config.delayMin)
 edit.delayMin.onValueChange = function(widget, value) config.delayMin = value end
 
+edit.delayMax:setStep(50)
 edit.delayMax:setValue(config.delayMax)
 edit.delayMax.onValueChange = function(widget, value) config.delayMax = value end
 
@@ -366,13 +369,64 @@ local function pickupDestination()
   end
   return nonLootFallback or anyFallback
 end
+-- Shove the topmost moveable item (typically the monster's corpse) off a tile
+-- so the thrown weapon underneath becomes the topmost item. Mimics a human who
+-- can only grab the top of a stack. Returns true if a move was issued.
+local function dumpTopmost(tile, centerPos)
+  local top = tile:getTopMoveThing()
+  if not top or not top:isItem() then return false end
+  if top:getId() == config.itemId or top:isNotMoveable() then return false end
 
--- Move weapons from backpacks into the weapon hand when it runs low.
+  -- Prefer an adjacent walkable tile that isn't covering one of our spears.
+  for dx = -1, 1 do
+    for dy = -1, 1 do
+      if not (dx == 0 and dy == 0) then
+        local np = { x = centerPos.x + dx, y = centerPos.y + dy, z = centerPos.z }
+        local nt = g_map.getTile(np)
+        if nt and nt:isWalkable() then
+          local ntop = nt:getTopMoveThing()
+          if not (ntop and ntop:getId() == config.itemId) then
+            g_game.move(top, np, top:getCount())
+            return true
+          end
+        end
+      end
+    end
+  end
+  -- Fallback: shove it onto our own tile.
+  g_game.move(top, pos(), top:getCount())
+  return true
+end
+
+-- Top up a low weapon hand from the BACKPACK (no walking, no ground pickup).
+-- Ground spears are handled by retrieve() and land in a backpack first; this is
+-- the only thing that touches the hand, so the "refill when count <=" threshold
+-- is the sole authority over hand contents. Backs off if a refill move doesn't
+-- actually raise the equipped count (e.g. can't force-equip into that slot).
+local refillBackoffUntil = 0
+local lastRefillSlot = nil
+local lastRefillBefore = nil
+
 local function refillHand()
+  if now < refillBackoffUntil then return false end
+
   local slot, handCount = findWeaponSlot()
   if not slot then return false end          -- both hands hold other gear
-  if handCount > config.refillAt then return false end
+
+  -- Threshold: only top up once the equipped stack is at/under the limit.
+  if handCount > config.refillAt then
+    lastRefillBefore = nil
+    return false
+  end
   if handCount >= 100 then return false end
+
+  -- Stall detection: previous refill targeted this slot but the count didn't
+  -- grow -> the move isn't sticking. Back off for a few seconds.
+  if lastRefillBefore and lastRefillSlot == slot and handCount <= lastRefillBefore then
+    refillBackoffUntil = now + 3000
+    lastRefillBefore = nil
+    return false
+  end
 
   local space = 100 - handCount
   for _, container in pairs(getContainers()) do
@@ -380,6 +434,8 @@ local function refillHand()
       if item:getId() == config.itemId then
         local amount = math.min(item:getCount(), space)
         if amount >= 1 then
+          lastRefillSlot = slot
+          lastRefillBefore = handCount
           g_game.move(item, { x = 65535, y = slot, z = 0 }, amount)
           return true
         end
@@ -389,58 +445,131 @@ local function refillHand()
   return false
 end
 
--- Pick thrown weapons back up off the ground (capacity-aware, partial stacks).
-local function retrieve()
-  local maxAffordable = affordableCount()
-  if maxAffordable < 1 then return false end  -- too heavy to carry even one
-
+-- Find the best ground tile holding our thrown weapon within pickup range.
+-- Considers buried spears too (so we can wait for / clear the corpse on top).
+-- Returns { tile, tp, dist } or nil. Adjacent tiles win over distant ones;
+-- among adjacent, the heaviest pile; among distant, the closest.
+local function findRetrieveTarget()
   local playerPos = pos()
   local best = nil
   for _, tile in ipairs(g_map.getTiles(posz())) do
     local tp = tile:getPosition()
     local dist = math.max(math.abs(playerPos.x - tp.x), math.abs(playerPos.y - tp.y))
     if dist <= config.pickupRange then
-      for _, item in ipairs(tile:getItems()) do
-        if item:getId() == config.itemId and not item:isNotMoveable() then
-          if not best or dist < best.dist then
-            best = { item = item, tp = tp, dist = dist, count = item:getCount() }
+      -- distant tiles only matter when walking is enabled
+      if dist <= 1 or config.walkToRetrieve then
+        for _, item in ipairs(tile:getItems()) do
+          if item:getId() == config.itemId and not item:isNotMoveable() then
+            local count = item:getCount()
+            local better
+            if not best then
+              better = true
+            elseif dist <= 1 and best.dist > 1 then
+              better = true
+            elseif dist <= 1 and best.dist <= 1 then
+              better = count > best.count
+            elseif dist > 1 and best.dist > 1 then
+              better = dist < best.dist
+            else
+              better = false
+            end
+            if better then
+              best = { tile = tile, tp = tp, dist = dist, count = count }
+            end
+            break
           end
-          break
         end
       end
     end
   end
+  return best
+end
 
-  if not best then return false end
+-- Perform ONE retrieval step against a previously-found target. Re-reads the
+-- tile fresh (state may have changed during the wait). Returns:
+--   "clear" -> shoved a corpse aside to expose a buried spear
+--   "bag"   -> picked the spear up into a backpack
+--   "walk"  -> walked toward a distant spear
+--   false   -> nothing actionable (e.g. buried under a creature)
+local function performRetrieve(target)
+  local maxAffordable = affordableCount()
+  if maxAffordable < 1 then return false end
 
-  if best.dist <= 1 then
+  local tile = g_map.getTile(target.tp)
+  if not tile then return false end
+
+  if target.dist <= 1 then
+    -- Bot-tell fix: only the TOPMOST item can be grabbed. Clear a covering
+    -- corpse first (as its own delayed step), then pick the spear next time.
+    local top = tile:getTopMoveThing()
+    if not top then return false end
+    if top:getId() ~= config.itemId then
+      if top:isItem() and not top:isNotMoveable() then
+        return dumpTopmost(tile, target.tp) and "clear" or false
+      end
+      return false  -- buried under a creature / unmoveable thing; wait it out
+    end
+    -- Spear is on top. Prefer picking it straight into the weapon hand (what a
+    -- paladin does) when that hand is empty or already holds the same weapon and
+    -- has room; the game aggregates the stack. Otherwise fall back to a bag.
+    local slot, handCount = findWeaponSlot()
+    local handItem = slot and getSlot(slot)
+    local handFree = slot and (not handItem or handItem:getId() == config.itemId)
+    if slot and handFree and (handCount or 0) < 100 then
+      local toPick = math.min(top:getCount(), maxAffordable, 100 - (handCount or 0))
+      if toPick >= 1 then
+        g_game.move(top, { x = 65535, y = slot, z = 0 }, toPick)
+        return "equip"
+      end
+    end
     local dest = pickupDestination()
     if not dest then return false end
-    -- take the whole pile, or only what we can carry (partial stack)
-    local toPick = math.min(best.count, maxAffordable)
-    g_game.move(best.item, dest, toPick)
-    return true
+    g_game.move(top, dest, math.min(top:getCount(), maxAffordable))
+    return "bag"
   elseif config.walkToRetrieve then
-    local path = findPath(playerPos, best.tp, 20, { ignoreNonPathable = false, precision = 1 })
-    if path then
-      autoWalk(best.tp, 20, { ignoreNonPathable = false, precision = 1 })
-      return true
+    -- Only need to get ADJACENT to the spear, not stand on it.
+    if autoWalk(target.tp, 20, { ignoreNonPathable = false, marginMin = 1, marginMax = 1 }) then
+      return "walk"
     end
   end
   return false
 end
 
+-- Refilling the hand feels instant so attacking never stalls.
+local REFILL_DELAY = 100
+
+-- Retrieval uses "wait then assess": when a spear is first spotted we arm a
+-- timer (the configurable random delay) and only act once it elapses. Each
+-- action re-arms the timer, so corpse-clearing and pickup are separate, paced
+-- steps -- never an instant grab the moment a spear is detected.
+local retrieveReadyAt = nil   -- nil = not armed
+
 macro(200, function()
   if not config.enabled then return end
   if not config.itemId or config.itemId <= 100 then return end
 
-  -- Keep the hand stocked first so attacking never stalls...
+  -- 1. Keep the hand stocked first (fast, threshold-gated, backpack only).
   if refillHand() then
-    delay(randomDelay())
+    delay(REFILL_DELAY)
     return
   end
-  -- ...then go reclaim what we have thrown.
-  if retrieve() then
-    delay(randomDelay())
+
+  -- 2. Reclaim thrown weapons with a deliberate wait-then-assess cadence.
+  local target = findRetrieveTarget()
+  if not target then
+    retrieveReadyAt = nil
+    return
   end
+  if not retrieveReadyAt then
+    -- First sighting: start the wait, do nothing yet.
+    retrieveReadyAt = now + randomDelay()
+    return
+  end
+  if now < retrieveReadyAt then
+    return  -- still waiting for the spear/corpse to settle
+  end
+
+  -- Timer elapsed: take one action, then re-arm so the next step waits again.
+  performRetrieve(target)
+  retrieveReadyAt = nil
 end)
