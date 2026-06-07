@@ -240,52 +240,102 @@ if rootWidget then
     healWindow.settings.list.MessageDelay:setChecked(currentSettings.MessageDelay)
   end
 
-  local refreshSpells = function()
-    if currentSettings.spellTable then
-      healWindow.healer.spells.spellList:destroyChildren()
-      for _, entry in pairs(currentSettings.spellTable) do
-        local label = UI.createWidget("SpellEntry", healWindow.healer.spells.spellList)
+  -- Maps between stored rule values and the combo-box option labels, so we can
+  -- both display a rule in the editor (load) and read the editor back into a
+  -- rule (save).
+  local sourceToOption = { MP = "Current Mana", HP = "Current Health", ["MP%"] = "Mana Percent", ["HP%"] = "Health Percent", burst = "Burst Damage" }
+  local signToOption   = { [">"] = "Above", ["<"] = "Below", ["="] = "Equal To" }
+  local optionToSource = { ["Current Mana"] = "MP", ["Current Health"] = "HP", ["Mana Percent"] = "MP%", ["Health Percent"] = "HP%", ["Burst Damage"] = "burst" }
+  local optionToSign   = { Above = ">", Below = "<", ["Equal To"] = "=" }
+
+  -- Which list entry (if any) is currently loaded in the editor for in-place
+  -- editing. Stored as the rule table itself so it survives list rebuilds.
+  local selectedSpellEntry = nil
+  local selectedItemEntry = nil
+
+  local loadSpellToEditor = function(entry)
+    local s = healWindow.healer.spells
+    s.spellSource:setCurrentOption(sourceToOption[entry.origin] or "Current Mana")
+    s.spellCondition:setCurrentOption(signToOption[entry.sign] or "Below")
+    s.spellValue:setText(tostring(entry.value))
+    s.spellFormula:setText(entry.spell)
+    s.manaCost:setText(tostring(entry.cost))
+  end
+
+  local loadItemToEditor = function(entry)
+    local it = healWindow.healer.items
+    it.itemSource:setCurrentOption(sourceToOption[entry.origin] or "Current Mana")
+    it.itemCondition:setCurrentOption(signToOption[entry.sign] or "Below")
+    it.itemValue:setText(tostring(entry.value))
+    it.itemId:setItemId(entry.item)
+  end
+
+  local refreshSpells
+  refreshSpells = function()
+    if not currentSettings.spellTable then return end
+    healWindow.healer.spells.spellList:destroyChildren()
+    -- ipairs keeps rows in stored order, which is the heal priority.
+    for _, entry in ipairs(currentSettings.spellTable) do
+      local label = UI.createWidget("SpellEntry", healWindow.healer.spells.spellList)
+      label.enabled:setChecked(entry.enabled)
+      label.enabled.onClick = function(widget)
+        standBySpells = false
+        standByItems = false
+        entry.enabled = not entry.enabled
         label.enabled:setChecked(entry.enabled)
-        label.enabled.onClick = function(widget)
-          standBySpells = false
-          standByItems = false
-          entry.enabled = not entry.enabled
-          label.enabled:setChecked(entry.enabled)
-        end
-        label.remove.onClick = function(widget)
-          standBySpells = false
-          standByItems = false
-          table.removevalue(currentSettings.spellTable, entry)
-          reindexTable(currentSettings.spellTable)
-          label:destroy()
-        end
-        label:setText("(MP>" .. entry.cost .. ") " .. entry.origin .. entry.sign .. entry.value .. ": " .. entry.spell)
+      end
+      label.remove.onClick = function(widget)
+        standBySpells = false
+        standByItems = false
+        if selectedSpellEntry == entry then selectedSpellEntry = nil end
+        table.removevalue(currentSettings.spellTable, entry)
+        reindexTable(currentSettings.spellTable)
+        refreshSpells()
+      end
+      -- Clicking the row loads it into the editor for editing / reordering.
+      label.onClick = function(widget)
+        selectedSpellEntry = entry
+        healWindow.healer.spells.spellList:focusChild(label)
+        loadSpellToEditor(entry)
+      end
+      label:setText("(MP>" .. entry.cost .. ") " .. entry.origin .. entry.sign .. entry.value .. ": " .. entry.spell)
+      if entry == selectedSpellEntry then
+        healWindow.healer.spells.spellList:focusChild(label)
       end
     end
   end
   refreshSpells()
 
-  local refreshItems = function()
-    if currentSettings.itemTable then
-      healWindow.healer.items.itemList:destroyChildren()
-      for _, entry in pairs(currentSettings.itemTable) do
-        local label = UI.createWidget("ItemEntry", healWindow.healer.items.itemList)
+  local refreshItems
+  refreshItems = function()
+    if not currentSettings.itemTable then return end
+    healWindow.healer.items.itemList:destroyChildren()
+    for _, entry in ipairs(currentSettings.itemTable) do
+      local label = UI.createWidget("ItemEntry", healWindow.healer.items.itemList)
+      label.enabled:setChecked(entry.enabled)
+      label.enabled.onClick = function(widget)
+        standBySpells = false
+        standByItems = false
+        entry.enabled = not entry.enabled
         label.enabled:setChecked(entry.enabled)
-        label.enabled.onClick = function(widget)
-          standBySpells = false
-          standByItems = false
-          entry.enabled = not entry.enabled
-          label.enabled:setChecked(entry.enabled)
-        end
-        label.remove.onClick = function(widget)
-          standBySpells = false
-          standByItems = false
-          table.removevalue(currentSettings.itemTable, entry)
-          reindexTable(currentSettings.itemTable)
-          label:destroy()
-        end
-        label.id:setItemId(entry.item)
-        label:setText(entry.origin .. entry.sign .. entry.value .. ": " .. entry.item)
+      end
+      label.remove.onClick = function(widget)
+        standBySpells = false
+        standByItems = false
+        if selectedItemEntry == entry then selectedItemEntry = nil end
+        table.removevalue(currentSettings.itemTable, entry)
+        reindexTable(currentSettings.itemTable)
+        refreshItems()
+      end
+      label.onClick = function(widget)
+        selectedItemEntry = entry
+        healWindow.healer.items.itemList:focusChild(label)
+        loadItemToEditor(entry)
+      end
+      label.id:setItemId(entry.item)
+      label:setText(entry.origin .. entry.sign .. entry.value .. ": " .. entry.item)
+      if entry == selectedItemEntry then
+        healWindow.healer.items.itemList:focusChild(label)
       end
     end
   end
@@ -394,6 +444,33 @@ if rootWidget then
       healWindow.healer.spells.spellValue:setText('')
       healWindow.healer.spells.manaCost:setText('')
     end
+    selectedSpellEntry = nil
+    standBySpells = false
+    standByItems = false
+    refreshSpells()
+  end
+
+  healWindow.healer.spells.saveSpell.onClick = function(widget)
+    if not selectedSpellEntry then
+      warn("HealBot: click a spell rule in the list to load it, then edit and Save.")
+      return
+    end
+    local s = healWindow.healer.spells
+    local spellFormula = s.spellFormula:getText():trim()
+    local manaCost = tonumber(s.manaCost:getText())
+    local spellTrigger = tonumber(s.spellValue:getText())
+    local spellSource = s.spellSource:getCurrentOption().text
+    local spellEquasion = s.spellCondition:getCurrentOption().text
+
+    if not manaCost then warn("HealBot: incorrect mana cost value!") return end
+    if not spellTrigger then warn("HealBot: incorrect condition value!") return end
+    if spellFormula:len() == 0 then warn("HealBot: incorrect spell formula!") return end
+
+    selectedSpellEntry.spell = spellFormula
+    selectedSpellEntry.cost = manaCost
+    selectedSpellEntry.value = spellTrigger
+    selectedSpellEntry.origin = optionToSource[spellSource] or "MP"
+    selectedSpellEntry.sign = optionToSign[spellEquasion] or "<"
     standBySpells = false
     standByItems = false
     refreshSpells()
@@ -437,6 +514,7 @@ if rootWidget then
 
     if id > 100 then
       table.insert(currentSettings.itemTable, {index = #currentSettings.itemTable+1,item = id, sign = equasion, origin = source, value = trigger, enabled = true})
+      selectedItemEntry = nil
       standBySpells = false
       standByItems = false
       refreshItems()
@@ -445,11 +523,36 @@ if rootWidget then
     end
   end
 
+  healWindow.healer.items.saveItem.onClick = function(widget)
+    if not selectedItemEntry then
+      warn("HealBot: click an item rule in the list to load it, then edit and Save.")
+      return
+    end
+    local it = healWindow.healer.items
+    local id = it.itemId:getItemId()
+    local trigger = tonumber(it.itemValue:getText())
+    local src = it.itemSource:getCurrentOption().text
+    local eq = it.itemCondition:getCurrentOption().text
+
+    if not trigger then warn("HealBot: incorrect trigger value!") return end
+    if id <= 100 then warn("HealBot: incorrect item!") return end
+
+    selectedItemEntry.item = id
+    selectedItemEntry.value = trigger
+    selectedItemEntry.origin = optionToSource[src] or "MP"
+    selectedItemEntry.sign = optionToSign[eq] or "<"
+    standBySpells = false
+    standByItems = false
+    refreshItems()
+  end
+
   healWindow.closeButton.onClick = function(widget)
     healWindow:hide()
   end
 
   local loadSettings = function()
+    selectedSpellEntry = nil
+    selectedItemEntry = nil
     ui.title:setOn(currentSettings.enabled)
     setProfileName()
     healWindow.settings.profiles.Name:setText(currentSettings.name)

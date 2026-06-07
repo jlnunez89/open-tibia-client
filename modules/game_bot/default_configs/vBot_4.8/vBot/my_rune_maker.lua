@@ -27,23 +27,70 @@ Panel
 ]])
 
 -- ── Config persistence ───────────────────────────────────────
-if not storage.runeMaker then
-  storage.runeMaker = {
-    enabled = false,
+-- New format stores multiple named profiles so one client can hold a separate
+-- rune-making setup per character (different words/mana/rune/weapon). Exactly
+-- one profile is "active" (rm.active = index) and the macro always follows it.
+local function defaultProfile(name)
+  return {
+    name = name or "Default",
     spellWords = "ad ura vita",
     manaCost = 100,
     spellRuneId = 3160,
-    weaponId = 3305
+    weaponId = 3305,
   }
 end
 
-local config = storage.runeMaker
+-- Migrate the old single-config format (flat spellWords/manaCost/... on
+-- storage.runeMaker) into a one-profile list, preserving the user's settings.
+if storage.runeMaker and storage.runeMaker.profiles == nil then
+  local old = storage.runeMaker
+  storage.runeMaker = {
+    enabled = old.enabled or false,
+    active = 1,
+    profiles = {
+      {
+        name = "Default",
+        spellWords = old.spellWords or "ad ura vita",
+        manaCost = old.manaCost or 100,
+        spellRuneId = old.spellRuneId or 3160,
+        weaponId = old.weaponId or 3305,
+      },
+    },
+  }
+end
+
+if not storage.runeMaker then
+  storage.runeMaker = { enabled = false, active = 1, profiles = { defaultProfile() } }
+end
+
+local runeMaker = storage.runeMaker
+
+-- Always keep at least one profile and a valid active index.
+if not runeMaker.profiles[1] then
+  runeMaker.profiles = { defaultProfile() }
+end
+if type(runeMaker.active) ~= "number"
+   or runeMaker.active < 1
+   or runeMaker.active > #runeMaker.profiles then
+  runeMaker.active = 1
+end
+
+-- Returns the currently active profile (the one the macro follows). Self-heals
+-- a bad active index so callers never get nil.
+local function activeProfile()
+  local p = runeMaker.profiles[runeMaker.active]
+  if not p then
+    runeMaker.active = 1
+    p = runeMaker.profiles[1]
+  end
+  return p
+end
 
 -- ── Bind toggle ──────────────────────────────────────────────
-ui.title:setOn(config.enabled)
+ui.title:setOn(runeMaker.enabled)
 ui.title.onClick = function(widget)
-  config.enabled = not config.enabled
-  widget:setOn(config.enabled)
+  runeMaker.enabled = not runeMaker.enabled
+  widget:setOn(runeMaker.enabled)
 end
 
 -- ── Popup setup window ───────────────────────────────────────
@@ -52,7 +99,52 @@ if rootWidget then
   local rmWindow = UI.createWindow('RuneMakerWindow', rootWidget)
   rmWindow:hide()
 
+  -- A readable one-line summary used as the list-row label.
+  local function profileSummary(p)
+    return (p.name ~= "" and p.name or "(unnamed)")
+  end
+
+  -- Load the active profile's values into the edit fields.
+  local loadingFields = false
+  local function loadFields()
+    local p = activeProfile()
+    loadingFields = true
+    rmWindow.profileName:setText(p.name)
+    rmWindow.spellWords:setText(p.spellWords)
+    rmWindow.manaCost:setText(tostring(p.manaCost))
+    rmWindow.spellRune:setItemId(p.spellRuneId)
+    rmWindow.weapon:setItemId(p.weaponId)
+    loadingFields = false
+  end
+
+  -- Rebuild the profile list; the active profile's row is focused/highlighted.
+  local function refreshList()
+    rmWindow.profileList:destroyChildren()
+    for index, p in ipairs(runeMaker.profiles) do
+      local row = UI.createWidget("RuneMakerProfileEntry", rmWindow.profileList)
+      row:setText(profileSummary(p))
+      row.onClick = function()
+        runeMaker.active = index
+        loadFields()
+        rmWindow.profileList:focusChild(row)
+      end
+      if index == runeMaker.active then
+        rmWindow.profileList:focusChild(row)
+      end
+    end
+  end
+
+  -- Keep the focused list row's label in sync while the name is edited.
+  local function refreshActiveRowText()
+    local row = rmWindow.profileList:getFocusedChild()
+    if row then
+      row:setText(profileSummary(activeProfile()))
+    end
+  end
+
   ui.setup.onClick = function(widget)
+    refreshList()
+    loadFields()
     rmWindow:show()
     rmWindow:raise()
     rmWindow:focus()
@@ -62,28 +154,54 @@ if rootWidget then
     rmWindow:hide()
   end
 
-  rmWindow.spellWords:setText(config.spellWords)
-  rmWindow.spellWords.onTextChange = function(widget, text)
-    config.spellWords = text
+  rmWindow.newButton.onClick = function(widget)
+    table.insert(runeMaker.profiles, defaultProfile("Profile " .. (#runeMaker.profiles + 1)))
+    runeMaker.active = #runeMaker.profiles
+    refreshList()
+    loadFields()
   end
 
-  rmWindow.manaCost:setText(tostring(config.manaCost))
+  rmWindow.deleteButton.onClick = function(widget)
+    if #runeMaker.profiles <= 1 then
+      warn("Rune Maker: at least one profile must remain")
+      return
+    end
+    table.remove(runeMaker.profiles, runeMaker.active)
+    if runeMaker.active > #runeMaker.profiles then
+      runeMaker.active = #runeMaker.profiles
+    end
+    refreshList()
+    loadFields()
+  end
+
+  rmWindow.profileName.onTextChange = function(widget, text)
+    if loadingFields then return end
+    activeProfile().name = text
+    refreshActiveRowText()
+  end
+
+  rmWindow.spellWords.onTextChange = function(widget, text)
+    if loadingFields then return end
+    activeProfile().spellWords = text
+  end
+
   rmWindow.manaCost.onTextChange = function(widget, text)
+    if loadingFields then return end
     local val = tonumber(text)
     if val and val >= 1 then
-      config.manaCost = val
+      activeProfile().manaCost = val
     end
   end
 
   rmWindow.spellRune.onItemChange = function(widget)
-    config.spellRuneId = widget:getItemId()
+    if loadingFields then return end
+    activeProfile().spellRuneId = widget:getItemId()
   end
-  rmWindow.spellRune:setItemId(config.spellRuneId)
 
   rmWindow.weapon.onItemChange = function(widget)
-    config.weaponId = widget:getItemId()
+    if loadingFields then return end
+    activeProfile().weaponId = widget:getItemId()
   end
-  rmWindow.weapon:setItemId(config.weaponId)
 end
 
 -- ── Helper: move rune to player-held container ───────────────
@@ -154,7 +272,9 @@ end
 local stuckCount = 0
 
 macro(3000, function()
-    if not config.enabled then return end
+    if not runeMaker.enabled then return end
+
+    local config = activeProfile()
     if config.spellRuneId == 0 or config.weaponId == 0 then return end
     if config.spellWords == "" then return end
 

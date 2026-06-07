@@ -44,7 +44,13 @@ if type(storage.autoLight) ~= "table" then
   storage.autoLight = {}
 end
 local cfg = storage.autoLight
-cfg.enabled              = cfg.enabled              or false
+-- NOTE: on/off is NOT stored here. "Auto Light" is a *named* macro, so the bot
+-- framework persists its switch state in storage._macros["Auto Light"] and
+-- restores it on load. We deliberately do not keep a second cfg.enabled flag --
+-- having two sources of truth previously forced the macro back on every time the
+-- bot was enabled (the switch wrote _macros while a stale cfg.enabled re-armed
+-- it). The macro now defaults OFF and only turns on when the user clicks it.
+cfg.enabled              = nil -- clear any legacy flag from older versions
 cfg.spell                = cfg.spell                or "utevo lux"
 cfg.manaCost             = cfg.manaCost             or 20
 -- Cast when ambient is below this. 160 covers the three night/twilight steps
@@ -54,9 +60,8 @@ cfg.ambientThreshold     = cfg.ambientThreshold     or 160
 cfg.playerLightThreshold = cfg.playerLightThreshold or 2
 cfg.minRecastMs          = cfg.minRecastMs          or 5000
 -- Assume a cast keeps us comfortably lit for this long. Sized for "utevo lux",
--- which stays >=2 brightness for ~5.6 min; 4 min leaves a safe margin so we
--- refresh before it gets dim instead of recasting every few seconds.
-cfg.litDurationMs        = cfg.litDurationMs        or 240000
+-- which stays >=2 brightness for ~5.6 min; 200s leaves a safe refresh margin.
+cfg.litDurationMs        = cfg.litDurationMs        or 200000
 if cfg.ignoreInPz == nil then cfg.ignoreInPz = true end
 
 UI.Label("Auto Light:")
@@ -72,18 +77,31 @@ local function addLightScrollBar(field, title, min, max, default, scale, tooltip
   local widget = UI.createWidget('ExtrasScrollBar')
   widget.text:setTooltip(tooltip)
   widget.scroll:setTooltip(tooltip)
-  widget.scroll.onValueChange = function(scroll, value)
-    widget.text:setText(title .. ": " .. value)
-    cfg[field] = value * scale
-  end
+
+  -- Capture the stored value BEFORE touching the scrollbar. setRange()/setValue()
+  -- can fire onValueChange (e.g. when clamping the widget's initial value up to a
+  -- non-zero minimum), so we must read cfg[field] first and only attach the
+  -- persisting handler AFTER the initial value is in place -- otherwise the clamp
+  -- would overwrite the saved value with the range minimum (the old "resets to
+  -- the lowest setting" bug).
+  local stored = math.floor((cfg[field] or (default * scale)) / scale)
+  if stored < min then stored = min elseif stored > max then stored = max end
+
   widget.scroll:setRange(min, max)
   if max - min > 1000 then
     widget.scroll:setStep(100)
   elseif max - min > 100 then
     widget.scroll:setStep(10)
   end
-  widget.scroll:setValue(math.floor((cfg[field] or (default * scale)) / scale))
-  widget.scroll.onValueChange(widget.scroll, widget.scroll:getValue())
+  widget.scroll:setValue(stored)
+
+  widget.scroll.onValueChange = function(scroll, value)
+    widget.text:setText(title .. ": " .. value)
+    cfg[field] = value * scale
+  end
+  -- Reflect the (clamped) stored value in the label and persist it once.
+  widget.text:setText(title .. ": " .. stored)
+  cfg[field] = stored * scale
 end
 
 -- Ambient darkness threshold. Server night/twilight steps are 51 / 102 / 153;
@@ -102,8 +120,8 @@ addLightScrollBar("manaCost", "Min mana to cast", 0, 200, 20, 1,
   "Do not cast the light spell unless we have at least this much mana.")
 
 -- How long one cast keeps us lit (seconds, stored as ms). utevo lux stays >=2
--- brightness ~5.6 min, so 240s leaves a safe refresh margin.
-addLightScrollBar("litDurationMs", "Recast every (s)", 30, 600, 240, 1000,
+-- brightness ~5.6 min, so 200s leaves a safe refresh margin.
+addLightScrollBar("litDurationMs", "Recast every (s)", 30, 600, 200, 1000,
   "Assume a single cast keeps us lit for this many seconds before refreshing. Sized for utevo lux (~5.6 min); raise for gran lux.")
 
 local function getAmbient()
@@ -191,9 +209,5 @@ local autoLightMacro = macro(1000, "Auto Light", function()
   say(cfg.spell)
   lastCastAt = now
 end)
-
-if cfg.enabled and autoLightMacro and autoLightMacro.setOn then
-  autoLightMacro.setOn(true)
-end
 
 UI.Separator()

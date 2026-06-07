@@ -169,6 +169,16 @@ SpellHealing < FlatPanel
     width: 40 
     font: verdana-11px-rounded
 
+  Button
+    id: saveSpell
+    anchors.left: manaCost.right
+    anchors.verticalCenter: manaCost.verticalCenter
+    margin-left: 10
+    text: Save
+    size: 45 17
+    font: cipsoftFont
+    tooltip: Click a rule in the list to load it here, change the values, then press Save to update it in place.
+
   TextList
     id: spellList
     anchors.left: parent.left
@@ -281,6 +291,16 @@ ItemHealing < FlatPanel
     id: itemId
     anchors.left: itemCondition.left
     anchors.top: itemCondition.bottom
+
+  Button
+    id: saveItem
+    anchors.left: itemId.right
+    anchors.verticalCenter: itemId.verticalCenter
+    margin-left: 10
+    text: Save
+    size: 45 17
+    font: cipsoftFont
+    tooltip: Click a rule in the list to load it here, change the values, then press Save to update it in place.
 
   TextList
     id: itemList
@@ -451,7 +471,7 @@ HealWindow < MainWindow
     anchors.left: parent.left
     anchors.top: parent.top
     margin-left: 2
-    !text: tr('More important methods come first (Example: Exura gran above Exura)')
+    !text: tr('Order = priority (top first). Click a rule to edit it, then Save.')
     text-align: left
     font: verdana-11px-rounded
     color: #aeaeae  

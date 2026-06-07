@@ -1,11 +1,105 @@
+RuneMakerProfileEntry < Label
+  background-color: alpha
+  text-offset: 5 1
+  focusable: true
+  height: 16
+  font: verdana-11px-rounded
+
+  $focus:
+    background-color: #00558844
+
 RuneMakerWindow < MainWindow
   !text: tr('Rune Maker Setup')
-  size: 230 220
+  size: 280 360
   @onEscape: self:hide()
 
   Label
+    id: profilesLabel
     anchors.top: parent.top
     anchors.left: parent.left
+    margin-left: 5
+    text: Profiles:
+
+  TextList
+    id: profileList
+    anchors.top: profilesLabel.bottom
+    anchors.left: parent.left
+    margin-top: 3
+    margin-right: 3
+    width: 180
+    height: 96
+    padding: 1
+    padding-top: 2
+    vertical-scrollbar: profileScrollBar
+
+  VerticalScrollBar
+    id: profileScrollBar
+    anchors.top: profileList.top
+    anchors.bottom: profileList.bottom
+    anchors.right: profileList.right
+    step: 14
+    pixels-scroll: true
+
+  Button
+    id: newButton
+    !text: tr('New')
+    font: cipsoftFont
+    anchors.top: profileList.top
+    anchors.left: profileList.right
+    anchors.right: parent.right
+    margin-left: 6
+    height: 21
+
+  Button
+    id: deleteButton
+    !text: tr('Delete')
+    font: cipsoftFont
+    anchors.top: prev.bottom
+    anchors.left: prev.left
+    anchors.right: parent.right
+    margin-top: 4
+    height: 21
+
+  HorizontalSeparator
+    id: listSep
+    anchors.right: parent.right
+    anchors.left: parent.left
+    anchors.top: profileList.bottom
+    margin-top: 8
+
+  Label
+    id: activeHint
+    anchors.top: listSep.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 4
+    margin-left: 5
+    text-align: center
+    text: Editing the selected (active) profile
+
+  Label
+    id: nameLabel
+    anchors.top: activeHint.bottom
+    anchors.left: parent.left
+    margin-top: 6
+    margin-left: 5
+    text: Name:
+
+  TextEdit
+    id: profileName
+    anchors.verticalCenter: nameLabel.verticalCenter
+    anchors.left: nameLabel.right
+    anchors.right: parent.right
+    margin-left: 8
+    margin-right: 5
+    height: 24
+    text-align: center
+
+  Label
+    id: wordsLabel
+    anchors.top: nameLabel.bottom
+    anchors.left: parent.left
+    margin-top: 12
     margin-left: 5
     text: Spell words:
 
@@ -15,11 +109,14 @@ RuneMakerWindow < MainWindow
     anchors.left: parent.left
     anchors.right: parent.right
     margin-top: 3
+    margin-left: 5
+    margin-right: 5
     height: 24
     text-align: center
 
   Label
-    anchors.top: prev.bottom
+    id: manaLabel
+    anchors.top: spellWords.bottom
     anchors.left: parent.left
     margin-top: 8
     margin-left: 5
