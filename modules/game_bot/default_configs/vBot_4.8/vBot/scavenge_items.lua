@@ -24,7 +24,7 @@ Panel
 
 local edit = setupUI([[
 Panel
-  height: 260
+  height: 283
 
   CheckBox
     id: consolidate
@@ -45,6 +45,16 @@ Panel
     text: Use scavenge list as drop list
     width: 220
     tooltip: When checked, the consolidate feature will drop from the scavenge item list instead of the separate drop list below.
+
+  CheckBox
+    id: whileAttacking
+    anchors.top: prev.bottom
+    anchors.left: parent.left
+    margin-top: 3
+    margin-left: 3
+    text: Scavenge while attacking
+    width: 220
+    tooltip: When checked, items are picked up even while TargetBot is attacking a target. Useful for Paladins using thrown weapons (spears) that must be constantly retrieved.
 
   Label
     anchors.top: prev.bottom
@@ -104,6 +114,7 @@ if not storage.scavenge then
     enabled = false,
     consolidate = false,
     dropFromScavenge = true,
+    whileAttacking = false,
     skipTTL = 30,
     items = {},
     dropItems = {}
@@ -115,6 +126,7 @@ local config = storage.scavenge
 if config.skipTTL == nil then config.skipTTL = 30 end
 if config.consolidate == nil then config.consolidate = false end
 if config.dropFromScavenge == nil then config.dropFromScavenge = true end
+if config.whileAttacking == nil then config.whileAttacking = false end
 if config.dropItems == nil then config.dropItems = {} end
 
 local showEdit = false
@@ -161,6 +173,12 @@ edit.dropFromScavenge.onClick = function(widget)
   updateDropListVisibility()
 end
 updateDropListVisibility()
+
+edit.whileAttacking:setChecked(config.whileAttacking)
+edit.whileAttacking.onClick = function(widget)
+  config.whileAttacking = not config.whileAttacking
+  edit.whileAttacking:setChecked(config.whileAttacking)
+end
 
 UI.Container(function()
   config.items = edit.ScavengeItems:getItems()
@@ -366,7 +384,7 @@ end
 
 macro(500, function()
   if not config.enabled then return end
-  if TargetBot and TargetBot.isActive() then return end
+  if not config.whileAttacking and TargetBot and TargetBot.isActive() then return end
 
   local itemIds = properTable(config.items)
   if #itemIds == 0 then return end

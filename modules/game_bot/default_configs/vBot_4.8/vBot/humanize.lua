@@ -7,7 +7,7 @@
 --
 -- Public API (exposed as the global `humanize`):
 --   humanize.enabled()                -> bool
---   humanize.delay(kind)              -> ms (0 when disabled or preset=Off)
+--   humanize.delay(kind)              -> ms (0 when disabled)
 --     kinds: "move", "action", "attackStart", "loot"
 --   humanize.canActNow()              -> bool   (false during a pause)
 --   humanize.tickIdle()               -> nil    (call ~1/sec while idle to maybe trigger turn/pause)
@@ -23,9 +23,8 @@ if type(storage.humanize) ~= "table" then
 end
 local cfg = storage.humanize
 if cfg.enabled       == nil then cfg.enabled = true end
-cfg.preset           = cfg.preset           or "Medium"   -- Off / Light / Medium / Paranoid
 
--- Base jitter ranges (Medium preset). Presets scale these via _scale().
+-- Base jitter ranges.
 cfg.moveJitterMin    = cfg.moveJitterMin    or 40
 cfg.moveJitterMax    = cfg.moveJitterMax    or 180
 cfg.actionJitterMin  = cfg.actionJitterMin  or 80
@@ -61,16 +60,6 @@ local state = {
   lastIdleTick  = 0,
 }
 
--- Preset scaling: returns a multiplier for jitter ranges and gates random
--- turns/pauses entirely on the lighter presets.
-local function presetScale()
-  local p = cfg.preset
-  if p == "Off"      then return 0 end
-  if p == "Light"    then return 0.5 end
-  if p == "Paranoid" then return 1.5 end
-  return 1   -- Medium
-end
-
 local function randRange(lo, hi)
   if hi < lo then hi = lo end
   return math.random(lo, hi)
@@ -79,20 +68,18 @@ end
 humanize = {}
 
 function humanize.enabled()
-  return cfg.enabled and cfg.preset ~= "Off"
+  return cfg.enabled
 end
 
 function humanize.delay(kind)
   if not humanize.enabled() then return 0 end
-  local s = presetScale()
-  if s <= 0 then return 0 end
   local lo, hi
   if     kind == "move"        then lo, hi = cfg.moveJitterMin,   cfg.moveJitterMax
   elseif kind == "action"      then lo, hi = cfg.actionJitterMin, cfg.actionJitterMax
   elseif kind == "attackStart" then lo, hi = cfg.attackStartMin,  cfg.attackStartMax
   elseif kind == "loot"        then lo, hi = cfg.lootJitterMin,   cfg.lootJitterMax
   else return 0 end
-  return math.floor(randRange(lo, hi) * s)
+  return math.floor(randRange(lo, hi))
 end
 
 function humanize.canActNow()
@@ -112,9 +99,8 @@ function humanize.repositionChance()
   return cfg.repositionChancePct or 100
 end
 
--- "Light" preset disables random turns/pauses entirely.
 local function randomBehaviorsAllowed()
-  return humanize.enabled() and cfg.preset ~= "Light"
+  return humanize.enabled()
 end
 
 local function tryTurnToTarget()
@@ -187,27 +173,10 @@ Panel
 
 local params = setupUI([[
 Panel
-  height: 452
+  height: 420
 
   Label
     anchors.top: parent.top
-    anchors.left: parent.left
-    margin-top: 5
-    margin-left: 3
-    text: Preset:
-    width: 100
-    tooltip: One of Off / Light / Medium / Paranoid.
-
-  BotTextEdit
-    id: preset
-    anchors.top: prev.top
-    anchors.left: prev.right
-    margin-left: 3
-    margin-right: 3
-    width: 60
-
-  Label
-    anchors.top: prev.bottom
     anchors.left: parent.left
     margin-top: 6
     margin-left: 3
@@ -443,13 +412,6 @@ local function bindNumber(widget, getter, setter, lo, hi)
     if lo then n = math.max(lo, n) end
     if hi then n = math.min(hi, n) end
     setter(n)
-  end
-end
-
-params.preset:setText(cfg.preset)
-params.preset.onTextChange = function(_, text)
-  if text == "Off" or text == "Light" or text == "Medium" or text == "Paranoid" then
-    cfg.preset = text
   end
 end
 

@@ -62,6 +62,7 @@ local luaFiles = {
   "my_rune_maker",
   "my_wanderer",
   "scavenge_items",
+  "thrown_weapon_manager",
   "stack_items",
   "bp_organizer",
   "set_tactics"
