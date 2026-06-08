@@ -251,9 +251,27 @@ local function classifyTile(tile)
   local ground = tile:getGround()
   if not ground then return nil end
   local id = ground:getId()
-  if isFishWaterId(id)  then return "fish"  end
-  if isPlainWaterId(id) then return "water" end
-  return nil
+  local kind
+  if     isFishWaterId(id)  then kind = "fish"
+  elseif isPlainWaterId(id) then kind = "water"
+  else return nil end
+
+  -- The ground is fishable, but the water surface must actually be EXPOSED.
+  -- Piers, bridges and similar fixed structures sit ON TOP of water ground:
+  -- the ground id is still water, yet a non-moveable item covers it. Casting
+  -- on such a tile targets the structure (planks, etc.) instead of the water
+  -- and the server replies "You cannot throw there." Two tells of a covered
+  -- tile, either of which disqualifies it:
+  --   1. open water blocks walking, so a water-ground tile that is WALKABLE
+  --      has been bridged over;
+  --   2. any non-moveable item stacked above the ground is a fixed structure.
+  if tile:isWalkable() then return nil end
+  for _, item in ipairs(tile:getItems()) do
+    if item:getId() ~= id and item:isNotMoveable() then
+      return nil
+    end
+  end
+  return kind
 end
 
 -- Always-on macro driven by config.enabled (not a named macro) because the
