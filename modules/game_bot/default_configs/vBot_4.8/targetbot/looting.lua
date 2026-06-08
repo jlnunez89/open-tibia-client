@@ -143,6 +143,22 @@ TargetBot.Looting.hasReachableLoot = function()
   return false
 end
 
+-- Returns true while a corpse at the given map position is still queued for
+-- looting (added but not yet fully looted / given up). The looter removes the
+-- entry from Looting.list the instant it finishes a corpse, so this is the
+-- authoritative "is looting still using this body" signal. Other scripts (e.g.
+-- the Thrown Weapon manager) use it to avoid moving a corpse mid-loot, which
+-- would otherwise close the loot container and abort looting.
+TargetBot.Looting.isPositionQueued = function(checkPos)
+  if not checkPos then return false end
+  for _, loot in ipairs(TargetBot.Looting.list) do
+    if loot.pos and loot.pos.x == checkPos.x and loot.pos.y == checkPos.y and loot.pos.z == checkPos.z then
+      return true
+    end
+  end
+  return false
+end
+
 TargetBot.Looting.process = function(targets, dangerLevel)
   if (not items[1] and not ui.everyItem:isOn()) or not containers[1] then
     status = ""

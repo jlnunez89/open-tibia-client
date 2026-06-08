@@ -48,7 +48,7 @@ Panel
 
 local edit = setupUI([[
 Panel
-  height: 216
+  height: 242
 
   Label
     id: itemLabel
@@ -178,9 +178,31 @@ Panel
     text: Walk to retrieve distant
     tooltip: When checked, the character will walk to thrown weapons that are out of reach. May fight with CaveBot/TargetBot movement, so leave off if you only want to grab items right next to you.
 
+  CheckBox
+    id: moveCorpses
+    anchors.top: walkToRetrieve.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 10
+    margin-left: 3
+    margin-right: 3
+    text: Move corpses before picking up spears
+    tooltip: When a thrown weapon is buried under a corpse (or other item), shove the covering item aside so the weapon can be grabbed. The item is moved next to / under the player so the looter can still reach the corpse. Uncheck to never move corpses (weapons under a corpse are skipped until the corpse is gone).
+
+  CheckBox
+    id: pickFromBelow
+    anchors.top: moveCorpses.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 10
+    margin-left: 3
+    margin-right: 3
+    text: Pick up from below corpses
+    tooltip: Reach straight for a thrown weapon buried under a corpse without moving the corpse. Faster and leaves loot containers untouched, but grabbing a non-topmost item is a tell of non-human (bot) behavior. Off by default.
+
   Label
     id: delayLabel
-    anchors.top: walkToRetrieve.bottom
+    anchors.top: pickFromBelow.bottom
     anchors.left: parent.left
     margin-top: 10
     margin-left: 3
@@ -230,6 +252,8 @@ if not storage.thrownWeapon then
     capBuffer = 0,
     pickupRange = 7,      -- spear throw range is 7
     walkToRetrieve = false,
+    moveCorpses = true,   -- shove a covering corpse aside to reach a buried weapon
+    pickFromBelow = false,-- reach under a corpse directly (non-human tell)
     handSlot = "Auto",    -- Auto / Left / Right / Ammo
     delayMin = 200,
     delayMax = 500
@@ -244,6 +268,8 @@ if config.refillAt == nil then config.refillAt = 5 end
 if config.capBuffer == nil then config.capBuffer = 0 end
 if config.pickupRange == nil then config.pickupRange = 7 end
 if config.walkToRetrieve == nil then config.walkToRetrieve = false end
+if config.moveCorpses == nil then config.moveCorpses = true end
+if config.pickFromBelow == nil then config.pickFromBelow = false end
 if config.handSlot == nil then config.handSlot = "Auto" end
 if config.delayMin == nil then config.delayMin = 200 end
 if config.delayMax == nil then config.delayMax = 500 end
@@ -290,6 +316,18 @@ edit.walkToRetrieve:setChecked(config.walkToRetrieve)
 edit.walkToRetrieve.onClick = function(widget)
   config.walkToRetrieve = not config.walkToRetrieve
   edit.walkToRetrieve:setChecked(config.walkToRetrieve)
+end
+
+edit.moveCorpses:setChecked(config.moveCorpses)
+edit.moveCorpses.onClick = function(widget)
+  config.moveCorpses = not config.moveCorpses
+  edit.moveCorpses:setChecked(config.moveCorpses)
+end
+
+edit.pickFromBelow:setChecked(config.pickFromBelow)
+edit.pickFromBelow.onClick = function(widget)
+  config.pickFromBelow = not config.pickFromBelow
+  edit.pickFromBelow:setChecked(config.pickFromBelow)
 end
 
 edit.delayMin:setStep(50)
@@ -369,32 +407,75 @@ local function pickupDestination()
   end
   return nonLootFallback or anyFallback
 end
+
+-- True while the TargetBot looter still has a corpse queued at this tile, so
+-- moving the corpse now would close the loot container and abort looting. We
+-- defer disturbing the body until the looter removes it from its list (which it
+-- does the instant a corpse is fully looted or given up) -- this is the precise
+-- "looting finished" signal, so we never have to guess how long looting takes.
+-- Returns false when TargetBot/looting is unavailable or idle.
+local function lootPendingAt(tp)
+  if not (TargetBot and TargetBot.Looting and TargetBot.Looting.isPositionQueued) then
+    return false
+  end
+  local ok, queued = pcall(TargetBot.Looting.isPositionQueued, tp)
+  return ok and queued or false
+end
+
 -- Shove the topmost moveable item (typically the monster's corpse) off a tile
 -- so the thrown weapon underneath becomes the topmost item. Mimics a human who
--- can only grab the top of a stack. Returns true if a move was issued.
+-- can only grab the top of a stack. The covering item is moved to a tile right
+-- next to the player (or under the player), NOT next to the corpse -- otherwise
+-- it tends to drift away and the looter can no longer reach the open corpse.
+-- The destination is randomized so we don't always pile onto the same spot.
+-- Returns true if a move was issued.
 local function dumpTopmost(tile, centerPos)
+  if not config.moveCorpses then return false end
+
   local top = tile:getTopMoveThing()
   if not top or not top:isItem() then return false end
   if top:getId() == config.itemId or top:isNotMoveable() then return false end
 
-  -- Prefer an adjacent walkable tile that isn't covering one of our spears.
+  -- Don't disturb a corpse the looter is still working on -- wait it out.
+  if lootPendingAt(centerPos) then return false end
+
+  local playerPos = pos()
+
+  -- Build candidate destinations: the 8 tiles around the player plus the
+  -- player's own tile ({0,0} = "below the player", item lands under us). Keep
+  -- them close so the corpse stays in looting reach.
+  local offsets = {}
   for dx = -1, 1 do
     for dy = -1, 1 do
-      if not (dx == 0 and dy == 0) then
-        local np = { x = centerPos.x + dx, y = centerPos.y + dy, z = centerPos.z }
-        local nt = g_map.getTile(np)
-        if nt and nt:isWalkable() then
-          local ntop = nt:getTopMoveThing()
-          if not (ntop and ntop:getId() == config.itemId) then
-            g_game.move(top, np, top:getCount())
-            return true
-          end
+      offsets[#offsets + 1] = { dx, dy }
+    end
+  end
+  -- Fisher-Yates shuffle so the drop spot varies between corpses.
+  for i = #offsets, 2, -1 do
+    local j = math.random(i)
+    offsets[i], offsets[j] = offsets[j], offsets[i]
+  end
+
+  for _, off in ipairs(offsets) do
+    local np = { x = playerPos.x + off[1], y = playerPos.y + off[2], z = playerPos.z }
+    -- Don't move it onto the very tile we're trying to clear.
+    if not (np.x == centerPos.x and np.y == centerPos.y) then
+      local nt = g_map.getTile(np)
+      -- The player's own tile is always a valid drop spot; others must be walkable.
+      local ownTile = (off[1] == 0 and off[2] == 0)
+      if nt and (ownTile or nt:isWalkable()) then
+        local ntop = nt:getTopMoveThing()
+        -- Never bury one of our own thrown weapons.
+        if not (ntop and ntop:getId() == config.itemId) then
+          g_game.move(top, np, top:getCount())
+          return true
         end
       end
     end
   end
+
   -- Fallback: shove it onto our own tile.
-  g_game.move(top, pos(), top:getCount())
+  g_game.move(top, playerPos, top:getCount())
   return true
 end
 
@@ -460,21 +541,43 @@ local function findRetrieveTarget()
       if dist <= 1 or config.walkToRetrieve then
         for _, item in ipairs(tile:getItems()) do
           if item:getId() == config.itemId and not item:isNotMoveable() then
-            local count = item:getCount()
-            local better
-            if not best then
-              better = true
-            elseif dist <= 1 and best.dist > 1 then
-              better = true
-            elseif dist <= 1 and best.dist <= 1 then
-              better = count > best.count
-            elseif dist > 1 and best.dist > 1 then
-              better = dist < best.dist
-            else
-              better = false
+            -- Decide whether an ADJACENT spear is actually grabbable this pass.
+            -- A spear buried under a corpse can only be taken if we can either
+            -- move the corpse or reach under it; and even when corpse-moving is
+            -- allowed we must not disturb a corpse the looter is still using.
+            -- Unreachable-now spears are skipped so they don't win "best" and
+            -- starve other spears -- we'll revisit them on a later pass.
+            local reachable = true
+            if dist <= 1 then
+              local top = tile:getTopMoveThing()
+              local buried = not (top and top:getId() == config.itemId)
+              if buried then
+                if config.pickFromBelow then
+                  reachable = true                       -- grab from below, no corpse disturbance
+                elseif config.moveCorpses then
+                  reachable = not lootPendingAt(tp)      -- wait until looter is done
+                else
+                  reachable = false
+                end
+              end
             end
-            if better then
-              best = { tile = tile, tp = tp, dist = dist, count = count }
+            if reachable then
+              local count = item:getCount()
+              local better
+              if not best then
+                better = true
+              elseif dist <= 1 and best.dist > 1 then
+                better = true
+              elseif dist <= 1 and best.dist <= 1 then
+                better = count > best.count
+              elseif dist > 1 and best.dist > 1 then
+                better = dist < best.dist
+              else
+                better = false
+              end
+              if better then
+                best = { tile = tile, tp = tp, dist = dist, count = count }
+              end
             end
             break
           end
@@ -503,28 +606,48 @@ local function performRetrieve(target)
     -- corpse first (as its own delayed step), then pick the spear next time.
     local top = tile:getTopMoveThing()
     if not top then return false end
-    if top:getId() ~= config.itemId then
-      if top:isItem() and not top:isNotMoveable() then
+
+    -- Decide which item is our spear. Normally it must be the topmost thing
+    -- (human behaviour). With "pick up from below corpses" enabled we reach
+    -- straight for the buried weapon (a non-human tell) instead of clearing
+    -- whatever is stacked on top of it.
+    local spear = nil
+    if top:getId() == config.itemId then
+      spear = top
+    elseif config.pickFromBelow then
+      for _, item in ipairs(tile:getItems()) do
+        if item:getId() == config.itemId and not item:isNotMoveable() then
+          spear = item
+          break
+        end
+      end
+    end
+
+    if not spear then
+      -- Can't reach the spear this pass: either clear the cover (when allowed)
+      -- or wait it out.
+      if top:getId() ~= config.itemId and top:isItem() and not top:isNotMoveable() then
         return dumpTopmost(tile, target.tp) and "clear" or false
       end
       return false  -- buried under a creature / unmoveable thing; wait it out
     end
-    -- Spear is on top. Prefer picking it straight into the weapon hand (what a
-    -- paladin does) when that hand is empty or already holds the same weapon and
-    -- has room; the game aggregates the stack. Otherwise fall back to a bag.
+
+    -- Spear is reachable. Prefer picking it straight into the weapon hand (what
+    -- a paladin does) when that hand is empty or already holds the same weapon
+    -- and has room; the game aggregates the stack. Otherwise fall back to a bag.
     local slot, handCount = findWeaponSlot()
     local handItem = slot and getSlot(slot)
     local handFree = slot and (not handItem or handItem:getId() == config.itemId)
     if slot and handFree and (handCount or 0) < 100 then
-      local toPick = math.min(top:getCount(), maxAffordable, 100 - (handCount or 0))
+      local toPick = math.min(spear:getCount(), maxAffordable, 100 - (handCount or 0))
       if toPick >= 1 then
-        g_game.move(top, { x = 65535, y = slot, z = 0 }, toPick)
+        g_game.move(spear, { x = 65535, y = slot, z = 0 }, toPick)
         return "equip"
       end
     end
     local dest = pickupDestination()
     if not dest then return false end
-    g_game.move(top, dest, math.min(top:getCount(), maxAffordable))
+    g_game.move(spear, dest, math.min(spear:getCount(), maxAffordable))
     return "bag"
   elseif config.walkToRetrieve then
     -- Only need to get ADJACENT to the spear, not stand on it.
