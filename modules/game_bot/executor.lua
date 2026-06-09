@@ -419,24 +419,39 @@ function executeBot(config, storage, tabs, msgCallback, saveConfigCallback, relo
         end
       end
     },
-    -- External control hook so the host client (e.g. the game_hotkeys "actions"
+    -- External control hooks so the host client (e.g. the game_hotkeys "actions"
     -- list) can flip this config's hunting scripts on/off without reaching into
     -- the sandbox directly. CaveBot / TargetBot are globals defined inside the
-    -- sandbox, so they live on `context`. Toggles BOTH together: if either is
-    -- currently on it turns both off (panic stop), otherwise turns both on.
-    -- Returns the resulting on/off boolean, or nil when the config defines
-    -- neither bot.
-    toggleHunting = function()
+    -- sandbox, so they live on `context`. Each toggle returns the resulting
+    -- on/off boolean, or nil when that bot is not defined by the config.
+    toggleCaveBot = function()
+      local cave = context.CaveBot
+      if type(cave) ~= "table" or type(cave.isOn) ~= "function" or type(cave.setOn) ~= "function" then
+        return nil
+      end
+      local newState = not cave.isOn()
+      cave.setOn(newState)
+      return newState
+    end,
+    toggleTargetBot = function()
+      local target = context.TargetBot
+      if type(target) ~= "table" or type(target.isOn) ~= "function" or type(target.setOn) ~= "function" then
+        return nil
+      end
+      local newState = not target.isOn()
+      target.setOn(newState)
+      return newState
+    end,
+    -- Panic stop: force BOTH bots off (never turns anything on). Returns true if
+    -- at least one bot was present to act on, false if the config has neither.
+    stopHunting = function()
       local cave = context.CaveBot
       local target = context.TargetBot
-      local hasCave = type(cave) == "table" and type(cave.isOn) == "function" and type(cave.setOn) == "function"
-      local hasTarget = type(target) == "table" and type(target.isOn) == "function" and type(target.setOn) == "function"
-      if not hasCave and not hasTarget then return nil end
-      local anyOn = (hasCave and cave.isOn()) or (hasTarget and target.isOn())
-      local newState = not anyOn
-      if hasCave then cave.setOn(newState) end
-      if hasTarget then target.setOn(newState) end
-      return newState
+      local hasCave = type(cave) == "table" and type(cave.setOn) == "function"
+      local hasTarget = type(target) == "table" and type(target.setOn) == "function"
+      if hasCave then cave.setOn(false) end
+      if hasTarget then target.setOn(false) end
+      return hasCave or hasTarget
     end
   }
 end

@@ -629,14 +629,30 @@ function botKeyDown(widget, keyCode, keyboardModifiers)
   safeBotCall(function() botExecutor.callbacks.onKeyDown(keyCode, keyboardModifiers) end)
 end
 
--- Public helper for the host client (game_hotkeys "actions"): flips the active
--- config's CaveBot + TargetBot on/off together as a panic toggle. Returns the
--- new on/off state, or nil if no bot is running / the config defines neither.
-function toggleBotHunting()
-  if botExecutor == nil or not botExecutor.toggleHunting then return nil end
+-- Public helpers for the host client (game_hotkeys "actions"): flip the active
+-- config's CaveBot / TargetBot independently, or force both off (panic stop).
+-- Each toggle returns the new on/off state, or nil if no bot is running / that
+-- bot isn't defined by the config.
+function toggleCaveBot()
+  if botExecutor == nil or not botExecutor.toggleCaveBot then return nil end
   local newState = nil
-  safeBotCall(function() newState = botExecutor.toggleHunting() end)
+  safeBotCall(function() newState = botExecutor.toggleCaveBot() end)
   return newState
+end
+
+function toggleTargetBot()
+  if botExecutor == nil or not botExecutor.toggleTargetBot then return nil end
+  local newState = nil
+  safeBotCall(function() newState = botExecutor.toggleTargetBot() end)
+  return newState
+end
+
+-- Returns true if at least one bot was present to turn off.
+function stopBotHunting()
+  if botExecutor == nil or not botExecutor.stopHunting then return nil end
+  local acted = nil
+  safeBotCall(function() acted = botExecutor.stopHunting() end)
+  return acted
 end
 
 function botKeyUp(widget, keyCode, keyboardModifiers)

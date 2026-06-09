@@ -77,16 +77,42 @@ function setupExtraHotkeys(combobox)
     end    
   end)  
   
-  addExtraHotkey("toggleBotHunting", "Toggle CaveBot & TargetBot on/off", function(repeated)
-    if repeated or not modules.game_bot or not modules.game_bot.toggleBotHunting then
+  addExtraHotkey("toggleCaveBot", "Toggle CaveBot on/off", function(repeated)
+    if repeated or not modules.game_bot or not modules.game_bot.toggleCaveBot then
       return
     end
-    local newState = modules.game_bot.toggleBotHunting()
+    local newState = modules.game_bot.toggleCaveBot()
     if newState == nil then
+      return -- no bot running or config has no CaveBot
+    end
+    if modules.game_textmessage then
+      modules.game_textmessage.displayGameMessage(newState and "CaveBot: ON" or "CaveBot: OFF")
+    end
+  end)
+
+  addExtraHotkey("toggleTargetBot", "Toggle TargetBot on/off", function(repeated)
+    if repeated or not modules.game_bot or not modules.game_bot.toggleTargetBot then
+      return
+    end
+    local newState = modules.game_bot.toggleTargetBot()
+    if newState == nil then
+      return -- no bot running or config has no TargetBot
+    end
+    if modules.game_textmessage then
+      modules.game_textmessage.displayGameMessage(newState and "TargetBot: ON" or "TargetBot: OFF")
+    end
+  end)
+
+  addExtraHotkey("stopBotHunting", "Turn CaveBot & TargetBot OFF", function(repeated)
+    if repeated or not modules.game_bot or not modules.game_bot.stopBotHunting then
+      return
+    end
+    local acted = modules.game_bot.stopBotHunting()
+    if not acted then
       return -- no bot running or config has neither CaveBot nor TargetBot
     end
     if modules.game_textmessage then
-      modules.game_textmessage.displayGameMessage(newState and "CaveBot & TargetBot: ON" or "CaveBot & TargetBot: OFF")
+      modules.game_textmessage.displayGameMessage("CaveBot & TargetBot: OFF")
     end
   end)
 
