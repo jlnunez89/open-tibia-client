@@ -77,6 +77,19 @@ function setupExtraHotkeys(combobox)
     end    
   end)  
   
+  addExtraHotkey("toggleBotHunting", "Toggle CaveBot & TargetBot on/off", function(repeated)
+    if repeated or not modules.game_bot or not modules.game_bot.toggleBotHunting then
+      return
+    end
+    local newState = modules.game_bot.toggleBotHunting()
+    if newState == nil then
+      return -- no bot running or config has neither CaveBot nor TargetBot
+    end
+    if modules.game_textmessage then
+      modules.game_textmessage.displayGameMessage(newState and "CaveBot & TargetBot: ON" or "CaveBot & TargetBot: OFF")
+    end
+  end)
+
   for index, actionDetails in ipairs(extraHotkeys) do
     combobox:addOption(actionDetails.description)
   end

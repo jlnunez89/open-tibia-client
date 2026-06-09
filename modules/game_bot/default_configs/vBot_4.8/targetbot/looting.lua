@@ -23,6 +23,10 @@ TargetBot.Looting.setup = function()
     ui.everyItem:setOn(not ui.everyItem:isOn())
     TargetBot.save()
   end
+  ui.dropTooHeavy.onClick = function()
+    ui.dropTooHeavy:setOn(not ui.dropTooHeavy:isOn())
+    TargetBot.save()
+  end
   ui.maxDangerPanel.value.onTextChange = function()
     local value = tonumber(ui.maxDangerPanel.value:getText())
     if not value then
@@ -59,6 +63,7 @@ TargetBot.Looting.update = function(data)
   ui.items:setItems(data['items'] or {})
   ui.containers:setItems(data['containers'] or {})
   ui.everyItem:setOn(data['everyItem'])
+  ui.dropTooHeavy:setOn(data['dropTooHeavy'])
   ui.maxDangerPanel.value:setText(data['maxDanger'] or 10)
   ui.minCapacityPanel.value:setText(data['minCapacity'] or 100)
   TargetBot.Looting.updateItemsAndContainers()
@@ -80,6 +85,7 @@ TargetBot.Looting.save = function(data)
   data['maxDanger'] = tonumber(ui.maxDangerPanel.value:getText())
   data['minCapacity'] = tonumber(ui.minCapacityPanel.value:getText())
   data['everyItem'] = ui.everyItem:isOn()
+  data['dropTooHeavy'] = ui.dropTooHeavy:isOn()
 end
 
 TargetBot.Looting.updateItemsAndContainers = function()
@@ -182,15 +188,24 @@ TargetBot.Looting.process = function(targets, dangerLevel)
   local containers = g_game.getContainers()
   local lootContainers = TargetBot.Looting.getLootContainers(containers)
 
-  -- check if there's container for loot and has empty space for it
-  if not noCap and not lootContainers[1] then
-    -- there's no space, don't loot
-    status = "No space"
-    warnLootBlocked("no room to loot - free up container space!")
-    return false
+  -- getLootContainers may have started opening another container to make room
+  -- (it sets waitTill). Wait for that to finish instead of prematurely dropping
+  -- loot we could still have stowed.
+  if not lootContainers[1] and waitTill > now then
+    return true
   end
 
-  if noCap then
+  -- Decide between stowing loot and dropping it on the ground. We drop when
+  -- below the configured min free capacity (noCap) OR when there's genuinely no
+  -- loot-container space left. Dropping keeps loot flowing: the corpse still
+  -- gets opened and wanted items pulled out (onto the floor) instead of refusing
+  -- to loot and leaving full corpses behind.
+  local dropMode = noCap or not lootContainers[1]
+
+  if dropMode then
+    if not noCap then
+      warnLootBlocked("no container space - dropping loot on the ground")
+    end
     status = "Looting (dropping)"
   else
     status = "Looting"
@@ -198,7 +213,7 @@ TargetBot.Looting.process = function(targets, dangerLevel)
 
   for index, container in pairs(containers) do
     if container.lootContainer then
-      TargetBot.Looting.lootContainer(lootContainers, container, noCap)
+      TargetBot.Looting.lootContainer(lootContainers, container, dropMode)
       return true
     end
   end
@@ -296,6 +311,12 @@ TargetBot.Looting.lootContainer = function(lootContainers, container, noCap)
         else
           return TargetBot.Looting.lootItem(lootContainers, item)
         end
+      elseif not noCap and ui.dropTooHeavy:isOn() then
+        -- We're not in drop-everything mode and there IS container space (else
+        -- process() would have set noCap), yet this item couldn't be stowed
+        -- after the retry budget -- it's too heavy to fit. Drop it on the
+        -- ground instead of leaving it behind. (Default off.)
+        return TargetBot.Looting.dropItem(item)
       end
     elseif storage.foodItems and storage.foodItems[1] and lastFoodConsumption + 5000 < now then
       for _, food in ipairs(storage.foodItems) do
@@ -367,8 +388,13 @@ TargetBot.Looting.lootItem = function(lootContainers, item)
     end
   end
 
+  -- No existing partial stack to merge into (or non-stackable): drop into the
+  -- first free slot. Move the WHOLE stack for stackables (a human grabs all of
+  -- it at once) — the previous code always moved 1, which looted gold/ammo one
+  -- unit at a time.
   local container = lootContainers[1]
-  g_game.move(item, container:getSlotPosition(container:getItemsCount()), 1)
+  local moveCount = item:isStackable() and item:getCount() or 1
+  g_game.move(item, container:getSlotPosition(container:getItemsCount()), moveCount)
   waitTill = now + 300 + lootJitter() -- give it 0.3s to move item
 end
 

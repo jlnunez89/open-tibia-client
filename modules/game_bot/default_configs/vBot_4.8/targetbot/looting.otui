@@ -20,6 +20,11 @@ TargetBotLootingPanel < Panel
     !text: tr("Loot every item")
     margin-top: 2
 
+  BotSwitch
+    id: dropTooHeavy
+    !text: tr("Drop too-heavy loot")
+    margin-top: 2
+
   Label
     margin-top: 5
     text: Containers for loot

@@ -629,6 +629,16 @@ function botKeyDown(widget, keyCode, keyboardModifiers)
   safeBotCall(function() botExecutor.callbacks.onKeyDown(keyCode, keyboardModifiers) end)
 end
 
+-- Public helper for the host client (game_hotkeys "actions"): flips the active
+-- config's CaveBot + TargetBot on/off together as a panic toggle. Returns the
+-- new on/off state, or nil if no bot is running / the config defines neither.
+function toggleBotHunting()
+  if botExecutor == nil or not botExecutor.toggleHunting then return nil end
+  local newState = nil
+  safeBotCall(function() newState = botExecutor.toggleHunting() end)
+  return newState
+end
+
 function botKeyUp(widget, keyCode, keyboardModifiers)
   if botExecutor == nil then return false end
   if keyCode == KeyUnknown then return end
