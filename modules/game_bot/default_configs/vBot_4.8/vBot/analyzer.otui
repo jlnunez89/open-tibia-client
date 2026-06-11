@@ -228,7 +228,7 @@ AnalyzerLootItem < UIItem
 
 AnalyzerGraph < UIGraph
   height: 140
-  capacity: 400
+  capacity: 75
   line-width: 1
   color: red
   margin-top: 5
@@ -257,7 +257,7 @@ AnalyzerButton < Button
 MainAnalyzerWindow < MiniWindow
   id: MainAnalyzerWindow
   text: Analytics Selector
-  height: 263
+  height: 287
   icon: /images/topbuttons/analyzers
 
   MiniWindowContents
@@ -293,6 +293,11 @@ MainAnalyzerWindow < MiniWindow
     AnalyzerButton
       id: XPAnalyzer
       text: XP Analyzer
+
+    AnalyzerButton
+      id: SkillsTraining
+      text: Skills Training
+      color: #4FC3F7
 
     AnalyzerButton
       id: Stats
@@ -338,7 +343,7 @@ SupplyAnalyzer < MiniWindow
 
 DamageDealtAnalyzer < MiniWindow
   id: DamageDealtAnalyzerWindow
-  text: Damage Dealt
+  text: Damage Dealt (approx)
   icon: /images/topbuttons/analyzers
 
   MiniWindowContents
@@ -356,7 +361,7 @@ DamageTakenAnalyzer < MiniWindow
 
 HealingAnalyzer < MiniWindow
   id: HealingAnalyzerWindow
-  text: Healing
+  text: Healing (approx)
   icon: /images/topbuttons/analyzers
 
   MiniWindowContents
@@ -367,6 +372,15 @@ XPAnalyzer < MiniWindow
   id: XPAnalyzerWindow    
   text: XP Analyzer
   height: 150
+  icon: /images/topbuttons/analyzers
+
+  MiniWindowContents
+    padding-top: 3
+    layout: verticalBox
+
+SkillsTrainingAnalyzer < MiniWindow
+  id: SkillsTrainingAnalyzerWindow
+  text: Skills Training
   icon: /images/topbuttons/analyzers
 
   MiniWindowContents
