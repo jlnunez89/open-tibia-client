@@ -439,6 +439,23 @@ local function dumpTopmost(tile, centerPos)
   -- Don't disturb a corpse the looter is still working on -- wait it out.
   if lootPendingAt(centerPos) then return false end
 
+  -- If the corpse we're about to move still has an open loot window, close it
+  -- FIRST. The looter schedules its "Close Looted Corpse After" auto-close
+  -- keyed to the original container object (targetbot/looting.lua); moving the
+  -- corpse invalidates that object (the server closes/relocates the window), so
+  -- the scheduled close can never match it again and the window is orphaned --
+  -- corpses then pile up despite the setting. Closing it as part of the move
+  -- keeps things tidy and is what a human would do before dragging a bag.
+  for _, oc in pairs(getContainers()) do
+    local ci = oc:getContainerItem()
+    if ci then
+      local cp = ci:getPosition()
+      if cp and cp.x == centerPos.x and cp.y == centerPos.y and cp.z == centerPos.z then
+        g_game.close(oc)
+      end
+    end
+  end
+
   local playerPos = pos()
 
   -- Build candidate destinations: the 8 tiles around the player plus the

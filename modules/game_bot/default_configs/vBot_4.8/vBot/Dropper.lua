@@ -258,6 +258,29 @@ local function dropDropperItem(item)
     g_game.move(item, dropDestination(), item:getCount())
 end
 
+-- Performs the action for a matched item in the given priority pass and reports
+-- whether anything was actually done. Pass 1 (cap items) only drops while free
+-- capacity is below the threshold; when cap is fine it returns false so the scan
+-- keeps going. The old `return cond and A or B` idiom returned false here too,
+-- but because it was a `return` it ALSO aborted the whole macro tick -- so a
+-- single cap item sitting in a bag (free cap fine) stopped the dropper before it
+-- ever reached the use/trash passes or any non-player-held (ground) container.
+local function handleDropperItem(pass, item)
+    if pass == 1 then
+        if freecap() < config.capThreshold then
+            dropDropperItem(item)
+            return true
+        end
+        return false
+    elseif pass == 2 then
+        use(item)
+        return true
+    else
+        dropDropperItem(item)
+        return true
+    end
+end
+
 macro(200, function()
     if not config.enabled then return end
     -- Nothing to do if neither source is enabled.
@@ -274,9 +297,8 @@ macro(200, function()
                 for __, item in ipairs(container:getItems()) do
                     for ___, userItem in ipairs(tables[i]) do
                         if item:getId() == userItem then
-                            return i == 1 and freecap() < config.capThreshold and dropDropperItem(item) or
-                                   i == 2 and use(item) or
-                                   i == 3 and dropDropperItem(item)
+                            if handleDropperItem(i, item) then return end
+                            break
                         end
                     end
                 end
@@ -290,9 +312,8 @@ macro(200, function()
                 if item then
                     for ___, userItem in ipairs(tables[i]) do
                         if item:getId() == userItem then
-                            return i == 1 and freecap() < config.capThreshold and dropDropperItem(item) or
-                                   i == 2 and use(item) or
-                                   i == 3 and dropDropperItem(item)
+                            if handleDropperItem(i, item) then return end
+                            break
                         end
                     end
                 end

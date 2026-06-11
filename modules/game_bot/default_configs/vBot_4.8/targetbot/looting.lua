@@ -250,12 +250,18 @@ TargetBot.Looting.getLootContainers = function(containers)
   local lootContainers = {}
   local openedContainersById = {}
   local toOpen = nil
+  -- "Open Next Loot Container" (vBot Settings). When the user disables it, the
+  -- looter must NOT try to open more containers once the loot bags are full --
+  -- otherwise it thrashes opening/closing the same full container in a loop.
+  -- With it off we just return whatever still has space (possibly none, in
+  -- which case process() falls back to dropping loot on the ground).
+  local openNext = storage.extras.nextBackpack ~= false
   for index, container in pairs(containers) do
     openedContainersById[container:getContainerItem():getId()] = 1
     if containersById[container:getContainerItem():getId()] and not container.lootContainer then
       if container:getItemsCount() < container:getCapacity() or container:hasPages() then
         table.insert(lootContainers, container)
-      else -- it's full, open next container if possible
+      elseif openNext then -- it's full, open next container if possible
         for slot, item in ipairs(container:getItems()) do
           if item:isContainer() and containersById[item:getId()] then
             toOpen = {item, container}
@@ -265,7 +271,7 @@ TargetBot.Looting.getLootContainers = function(containers)
       end
     end
   end
-  if not lootContainers[1] then
+  if openNext and not lootContainers[1] then
     if toOpen then
       g_game.open(toOpen[1], toOpen[2])
       waitTill = now + 500 + lootJitter() -- wait 0.5s

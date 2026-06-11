@@ -26,6 +26,7 @@ SpellEntry < Label
   background-color: alpha
   text-offset: 18 1
   focusable: true
+  phantom: false
   height: 16
   font: verdana-11px-rounded
 
@@ -54,6 +55,7 @@ ItemEntry < Label
   background-color: alpha
   text-offset: 40 1
   focusable: true
+  phantom: false
   height: 16
   font: verdana-11px-rounded
 

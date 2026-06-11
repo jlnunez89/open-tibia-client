@@ -2,6 +2,7 @@ RuneMakerProfileEntry < Label
   background-color: alpha
   text-offset: 5 1
   focusable: true
+  phantom: false
   height: 16
   font: verdana-11px-rounded
 

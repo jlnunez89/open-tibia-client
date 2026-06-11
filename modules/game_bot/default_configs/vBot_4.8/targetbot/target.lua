@@ -93,6 +93,8 @@ targetbotMacro = macro(100, function()
       TargetBot.setStatus("Attack & " .. lootingStatus)
     elseif cavebotAllowance > now then
       TargetBot.setStatus("Luring using CaveBot")
+    elseif TargetBot.Creature.trainingHold then
+      TargetBot.setStatus("Training (holding target)")
     else
       TargetBot.setStatus("Attacking")
       if not lureEnabled then
@@ -166,6 +168,67 @@ ui.editor.buttons.remove.onClick = function()
   entry:destroy()
   TargetBot.Creature.resetConfigsCache()
   TargetBot.save()
+end
+
+-- Training mode (hold target alive). Config persists in storage.targetTraining;
+-- the attack hold itself is implemented in creature_attack.lua.
+storage.targetTraining = storage.targetTraining or {}
+local training = storage.targetTraining
+if training.enabled == nil then training.enabled = false end
+if training.stopBelow == nil then training.stopBelow = 40 end
+if training.resumeAbove == nil then training.resumeAbove = 70 end
+-- Resume must stay strictly above stop so there's a healing band (hysteresis).
+if training.resumeAbove <= training.stopBelow then
+  training.resumeAbove = math.min(100, training.stopBelow + 10)
+end
+
+ui.training.toggle:setOn(training.enabled)
+ui.training.toggle.onClick = function(widget)
+  training.enabled = not training.enabled
+  widget:setOn(training.enabled)
+end
+
+do
+  local rootWidget = g_ui.getRootWidget()
+  if rootWidget then
+    local trainingWindow = UI.createWindow('TrainingWindow', rootWidget)
+    trainingWindow:hide()
+
+    -- Wire an ExtrasScrollBar (0-100 %) to a training field. Set range/value
+    -- BEFORE attaching onValueChange so setRange's clamp doesn't overwrite the
+    -- stored value (see auto_light.lua scrollbar-clamp note).
+    local function wireScroll(panel, id, title)
+      local stored = tonumber(training[id]) or 0
+      stored = math.max(0, math.min(100, stored))
+      panel.scroll:setRange(0, 100)
+      panel.scroll:setStep(5)
+      panel.scroll:setValue(stored)
+      panel.text:setText(title .. ": " .. stored .. "%")
+      training[id] = stored
+      panel.scroll.onValueChange = function(scroll, value)
+        training[id] = value
+        panel.text:setText(title .. ": " .. value .. "%")
+      end
+    end
+
+    wireScroll(trainingWindow.stopBelow, "stopBelow", "Stop attacking at/below")
+    wireScroll(trainingWindow.resumeAbove, "resumeAbove", "Resume attacking at/above")
+
+    ui.training.edit.onClick = function()
+      trainingWindow:show()
+      trainingWindow:raise()
+      trainingWindow:focus()
+    end
+
+    trainingWindow.closeButton.onClick = function()
+      -- Enforce the healing band on close so resume is always above stop.
+      if training.resumeAbove <= training.stopBelow then
+        training.resumeAbove = math.min(100, training.stopBelow + 10)
+        trainingWindow.resumeAbove.scroll:setValue(training.resumeAbove)
+      end
+      trainingWindow:hide()
+    end
+  end
 end
 
 -- public function, you can use them in your scripts

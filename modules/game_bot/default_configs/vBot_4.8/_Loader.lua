@@ -60,7 +60,6 @@ local luaFiles = {
   "hold_target",
   "cavebot_control_panel",
   "my_rune_maker",
-  "my_wanderer",
   "scavenge_items",
   "thrown_weapon_manager",
   "stack_items",

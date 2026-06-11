@@ -9,6 +9,10 @@ local dynamicLureDelay = false
 local attackJitterFor = nil
 local attackJitterUntil = 0
 
+-- Training mode: id of the creature we're currently "holding" (not damaging so
+-- it doesn't die). Kept across ticks so the stop/resume hysteresis is stable.
+local trainingHoldId = nil
+
 -- Anti-detection: when too many monsters are clustered around the player,
 -- step away from their centroid to break stationary-tank patterns. Gated
 -- by humanize.maxAttackers() and a cooldown. No-op when humanize is off.
@@ -56,6 +60,47 @@ TargetBot.Creature.attack = function(params, targets, isLooting) -- params {conf
   local config = params.config
   local creature = params.creature
   
+  -- Training mode: hold the target alive instead of killing it. For skill
+  -- training a summoned healer (e.g. a Monk) is attacked for distance/magic
+  -- skills while other monsters hit us for shielding. The healer heals
+  -- randomly, so at high skill we can burst it down between heals -- this stops
+  -- our damage once it drops to/below stopBelow% HP and only resumes once it
+  -- heals back above resumeAbove% (the gap is hysteresis, so attacks don't flap
+  -- on/off around a single threshold). We keep the target selected and keep
+  -- walking (to hold position); we only stop dealing damage. Looting and other
+  -- targets are unaffected.
+  TargetBot.Creature.trainingHold = false
+  local training = storage.targetTraining
+  if training and training.enabled then
+    local hp = creature:getHealthPercent()
+    if hp then
+      local cid = creature:getId()
+      if trainingHoldId == cid then
+        if hp >= training.resumeAbove then trainingHoldId = nil end
+      elseif hp <= training.stopBelow then
+        trainingHoldId = cid
+      end
+      if trainingHoldId == cid then
+        TargetBot.Creature.trainingHold = true
+        -- Stop dealing damage. Use cancelAttackAndFollow() (NOT cancelAttack):
+        -- bare cancelAttack only clears the local attack indicator (the red
+        -- square) without reliably sending the stop to the server, so the
+        -- character keeps auto-attacking. cancelAttackAndFollow sends the real
+        -- cancel packet -- it's the same call creature_priority.lua uses for its
+        -- pvp-safe stop. Re-issue every tick while held (guarded by isAttacking)
+        -- so if anything re-acquires the target we immediately drop it again.
+        if g_game.isAttacking() then
+          g_game.cancelAttackAndFollow()
+        end
+        -- Keep position (e.g. keep-distance) so we're ready when it heals.
+        if not isLooting then
+          TargetBot.Creature.walk(creature, config, targets)
+        end
+        return
+      end
+    end
+  end
+
   if g_game.getAttackingCreature() ~= creature then
     -- Anti-detection: skip attack initiation entirely during a humanize pause.
     if humanize and humanize.enabled() and not humanize.canActNow() then

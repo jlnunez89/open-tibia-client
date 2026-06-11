@@ -1,4 +1,4 @@
-setDefaultTab("Main")
+setDefaultTab("Tools")
 UI.Separator()
 
 local blankRuneId = 3147

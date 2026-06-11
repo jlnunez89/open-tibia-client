@@ -6,6 +6,47 @@ TargetBotEntry < Label
   $focus:
     background-color: #00000055
 
+TrainingWindow < MainWindow
+  !text: tr('TargetBot Training')
+  size: 290 215
+  @onEscape: self:hide()
+
+  Label
+    id: info
+    anchors.top: parent.top
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 2
+    text-align: center
+    text-auto-resize: true
+    !text: tr('Hold the target alive for skill training:\nstop attacking when it drops low and\nresume once it heals back up.')
+
+  ExtrasScrollBar
+    id: stopBelow
+    anchors.top: info.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 10
+    margin-left: 8
+    margin-right: 8
+
+  ExtrasScrollBar
+    id: resumeAbove
+    anchors.top: prev.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-left: 8
+    margin-right: 8
+
+  Button
+    id: closeButton
+    !text: tr('Close')
+    font: cipsoftFont
+    anchors.right: parent.right
+    anchors.bottom: parent.bottom
+    size: 45 21
+    margin-right: 5
+
 TargetBotDualLabel < Panel
   height: 18
   margin-left: 3
@@ -113,3 +154,26 @@ TargetBotPanel < Panel
     BotSwitch
       id: debug
       text: Show target priority
+
+  Panel
+    id: training
+    height: 20
+    margin-top: 3
+
+    BotSwitch
+      id: toggle
+      anchors.top: parent.top
+      anchors.left: parent.left
+      anchors.bottom: parent.bottom
+      width: 130
+      text-align: center
+      !text: tr('Training Mode')
+
+    Button
+      id: edit
+      anchors.top: prev.top
+      anchors.left: prev.right
+      anchors.right: parent.right
+      anchors.bottom: parent.bottom
+      margin-left: 3
+      text: Edit
