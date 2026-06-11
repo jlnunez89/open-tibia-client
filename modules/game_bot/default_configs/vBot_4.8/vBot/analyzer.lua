@@ -687,13 +687,13 @@ local xpGraph = UI.createWidget("AnalyzerGraph", xpWindow.contentsPanel)
 local trainNote = UI.Label("Draw blood every <=10 hits.", skillsTrainingWindow.contentsPanel)
 trainNote:setColor('#aaaaaa')
 trainNote:setHeight(28)
-local roundsSinceBloodLabel = UI.DualLabel("Rounds Since Blood:", "0", {maxWidth = 200}, skillsTrainingWindow.contentsPanel).right
-local maxStreakLabel = UI.DualLabel("Worst Dry Streak:", "0", {maxWidth = 200}, skillsTrainingWindow.contentsPanel).right
-local roundsLostLabel = UI.DualLabel("Rounds Lost:", "0", {maxWidth = 200}, skillsTrainingWindow.contentsPanel).right
 local efficiencyLabel = UI.DualLabel("Efficiency:", "-", {maxWidth = 200}, skillsTrainingWindow.contentsPanel).right
-local bleedRateLabel = UI.DualLabel("Bleed Rate:", "-", {maxWidth = 200}, skillsTrainingWindow.contentsPanel).right
+local roundsSinceBloodLabel = UI.DualLabel("Rounds Since Blood:", "0", {maxWidth = 200}, skillsTrainingWindow.contentsPanel).right
+local maxStreakLabel = UI.DualLabel("Worst Streak:", "0", {maxWidth = 200}, skillsTrainingWindow.contentsPanel).right
+local roundsLostLabel = UI.DualLabel("Rounds Lost:", "0", {maxWidth = 200}, skillsTrainingWindow.contentsPanel).right
 local attackRoundsLabel = UI.DualLabel("Attack Rounds:", "0", {maxWidth = 200}, skillsTrainingWindow.contentsPanel).right
 local bloodHitsLabel = UI.DualLabel("Blood Hits:", "0", {maxWidth = 200}, skillsTrainingWindow.contentsPanel).right
+local bleedRateLabel = UI.DualLabel("Bleed Rate:", "-", {maxWidth = 200}, skillsTrainingWindow.contentsPanel).right
 UI.Separator(skillsTrainingWindow.contentsPanel)
 --//graph
 local trainGraph = UI.createWidget("AnalyzerGraphBlue", skillsTrainingWindow.contentsPanel)
