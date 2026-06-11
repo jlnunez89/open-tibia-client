@@ -36,39 +36,55 @@ local hour = ""
 local launchTime = now
 local startExp = exp()
 -- Impact Analyzer data sources (all approximate on 7.72 - see the UI section):
-local dmgTable = {}        -- damage DEALT (approx, from floating numbers on creatures)
-local dmgTakenTable = {}   -- damage TAKEN (exact, from "You lose ..." messages)
-local healTable = {}       -- healing (approx, from positive HP changes)
 local expTable = {}
 local totalDmg = 0         -- total damage dealt (approx)
 local totalDmgTaken = 0    -- total damage taken
 local totalHeal = 0        -- total healing (approx)
 local dmgDistribution = {}
+-- Attacker breakdown is bounded to the same trailing window as the combat chart
+-- (75 rounds x 2s = 150s) so the "top hitters" board stays consistent with it.
+local DIST_WINDOW_MS = 150 * 1000
 -- Skills Training (approx): bleed-frequency tracking (see the Skills Training panel)
 local trainRoundsSinceBlood = 0
 local trainMaxStreak = 0
 local trainAttackRounds = 0
 local trainBloodHits = 0
+local trainRoundsLost = 0    -- attack rounds spent at >=10 rounds since blood (wasted)
 local trainBloodFlag = false
 local trainTargetPos = nil       -- last-known tile of our attack target
 local trainTargetPosTime = 0     -- when trainTargetPos was captured (ms)
 local first = {l="-", r="0"}
 local second = {l="-", r="0"}
 local third = {l="-", r="0"}
-local fourth = {l="-", r="0"}
-local five = {l="-", r="0"}
 storage.bestHit = storage.bestHit or 0    -- hardest single hit we dealt (approx)
 storage.worstHit = storage.worstHit or 0  -- hardest single hit we took
 storage.bestHeal = storage.bestHeal or 0  -- biggest single heal tick (approx)
--- Peak per-second rates shown as text labels (Max-DPS / Max/s / Max-HPS).
--- Declared here (not next to the main loop) so resetAnalyzerSessionData, which
--- is defined earlier in the file, can clear them on "Reset Session".
-local bestDPS = 0
-local bestHPS = 0
-local bestDtps = 0
+-- "Max (last ~2.5 min)" labels show the largest single per-round (2s) total seen
+-- inside the trailing chart window, so the figure matches the peak the chart
+-- itself draws. They are recomputed from these rolling buffers in the graph
+-- macro. Declared here (not next to the main loop) so resetAnalyzerSessionData,
+-- which is defined earlier in the file, can clear them on "Reset Session".
+local GRAPH_CAPACITY = 75   -- keep in sync with AnalyzerGraph capacity (analyzer.otui)
+local dmgRounds = {}
+local takenRounds = {}
+local healRounds = {}
+local maxDmgRound = 0
+local maxTakenRound = 0
+local maxHealRound = 0
+local function windowedMax(buf, val)
+  buf[#buf + 1] = val
+  while #buf > GRAPH_CAPACITY do
+    table.remove(buf, 1)
+  end
+  local m = 0
+  for i = 1, #buf do
+    if buf[i] > m then m = buf[i] end
+  end
+  return m
+end
 -- Cumulative totals captured at the previous graph draw. The combat graphs plot
--- the per-minute TOTAL (delta since last draw), not an instantaneous per-second
--- rate, so each point reflects a whole minute of activity.
+-- the per-round TOTAL (delta since last draw), so each point reflects ~2s of
+-- activity (one attack round).
 local lastDmgGraph = 0
 local lastTakenGraph = 0
 local lastHealGraph = 0
@@ -134,19 +150,19 @@ local supplyWindow = UI.createMiniWindow("SupplyAnalyzer")
 supplyWindow:hide()
 local dealtWindow = UI.createMiniWindow("DamageDealtAnalyzer")
 dealtWindow:hide()
-dealtWindow:setContentMaximumHeight(240)
+dealtWindow:setContentMaximumHeight(220)
 local takenWindow = UI.createMiniWindow("DamageTakenAnalyzer")
 takenWindow:hide()
-takenWindow:setContentMaximumHeight(410)
+takenWindow:setContentMaximumHeight(340)
 local healingWindow = UI.createMiniWindow("HealingAnalyzer")
 healingWindow:hide()
-healingWindow:setContentMaximumHeight(240)
+healingWindow:setContentMaximumHeight(220)
 local xpWindow = UI.createMiniWindow("XPAnalyzer")
 xpWindow:hide()
 xpWindow:setContentMaximumHeight(230)
 local skillsTrainingWindow = UI.createMiniWindow("SkillsTrainingAnalyzer")
 skillsTrainingWindow:hide()
-skillsTrainingWindow:setContentMaximumHeight(300)
+skillsTrainingWindow:setContentMaximumHeight(320)
 local settingsWindow = UI.createWindow("FeaturesWindow")
 settingsWindow:hide()
 local partyHuntWindow = UI.createMiniWindow("PartyAnalyzerWindow")
@@ -595,8 +611,8 @@ local supplyGraph = UI.createWidget("AnalyzerGraph", supplyWindow.contentsPanel)
 -- (the "(approx)" caveat now lives in the window title bar; the redundant
 --  in-panel title label was removed to reclaim a row)
 local totalDamageLabel = UI.DualLabel("Total:", "0", {}, dealtWindow.contentsPanel).right
-local maxDpsLabel = UI.DualLabel("Max-DPS:", "0", {}, dealtWindow.contentsPanel).right
-local bestHitLabel = UI.DualLabel("Hardest Hit:", "0", {}, dealtWindow.contentsPanel).right
+local maxDpsLabel = UI.DualLabel("Max (last ~2.5 min):", "0", {maxWidth = 140}, dealtWindow.contentsPanel).right
+local bestHitLabel = UI.DualLabel("Hardest Hit (session):", "0", {maxWidth = 140}, dealtWindow.contentsPanel).right
 UI.Separator(dealtWindow.contentsPanel)
 local dmgGraph = UI.createWidget("AnalyzerGraph", dealtWindow.contentsPanel)
       dmgGraph:setTitle("Damage/round")
@@ -607,8 +623,8 @@ local dmgGraph = UI.createWidget("AnalyzerGraph", dealtWindow.contentsPanel)
 -- (redundant in-panel title label removed; the window title bar already says
 --  "Damage Taken")
 local totalTakenLabel = UI.DualLabel("Total:", "0", {}, takenWindow.contentsPanel).right
-local maxDtpsLabel = UI.DualLabel("Max/s:", "0", {}, takenWindow.contentsPanel).right
-local worstHitLabel = UI.DualLabel("Hardest Hit:", "0", {}, takenWindow.contentsPanel).right
+local maxDtpsLabel = UI.DualLabel("Max (last ~2.5 min):", "0", {maxWidth = 140}, takenWindow.contentsPanel).right
+local worstHitLabel = UI.DualLabel("Hardest Hit (session):", "0", {maxWidth = 140}, takenWindow.contentsPanel).right
 UI.Separator(takenWindow.contentsPanel)
 local takenGraph = UI.createWidget("AnalyzerGraph", takenWindow.contentsPanel)
       takenGraph:setTitle("Damage Taken/round")
@@ -625,7 +641,7 @@ title2:setColor('#FABD02')
 -- a glance. Created interleaved so each bar sits directly under its own row.
 local takenTops = {}
 local takenBars = {}
-for i=1,5 do
+for i=1,3 do
   local row = UI.DualLabel("-", "0", {maxWidth = 200}, takenWindow.contentsPanel)
   row.left:setWidth(135)
   takenTops[i] = row
@@ -639,10 +655,10 @@ end
 -- (the "(approx)" caveat now lives in the window title bar; the redundant
 --  in-panel title label was removed to reclaim a row)
 local totalHealingLabel = UI.DualLabel("Total:", "0", {}, healingWindow.contentsPanel).right
-local maxHpsLabel = UI.DualLabel("Max-HPS:", "0", {}, healingWindow.contentsPanel).right
-local bestHealLabel = UI.DualLabel("Best Tick:", "0", {}, healingWindow.contentsPanel).right
+local maxHpsLabel = UI.DualLabel("Max (last ~2.5 min):", "0", {maxWidth = 140}, healingWindow.contentsPanel).right
+local bestHealLabel = UI.DualLabel("Best Tick (session):", "0", {maxWidth = 140}, healingWindow.contentsPanel).right
 UI.Separator(healingWindow.contentsPanel)
-local healGraph = UI.createWidget("AnalyzerGraph", healingWindow.contentsPanel)
+local healGraph = UI.createWidget("AnalyzerGraphGreen", healingWindow.contentsPanel)
       healGraph:setTitle("Healing/round")
       healGraph:setShowLabels(true)
       drawGraph(healGraph, 0)
@@ -673,12 +689,14 @@ trainNote:setColor('#aaaaaa')
 trainNote:setHeight(28)
 local roundsSinceBloodLabel = UI.DualLabel("Rounds Since Blood:", "0", {maxWidth = 200}, skillsTrainingWindow.contentsPanel).right
 local maxStreakLabel = UI.DualLabel("Worst Dry Streak:", "0", {maxWidth = 200}, skillsTrainingWindow.contentsPanel).right
+local roundsLostLabel = UI.DualLabel("Rounds Lost:", "0", {maxWidth = 200}, skillsTrainingWindow.contentsPanel).right
+local efficiencyLabel = UI.DualLabel("Efficiency:", "-", {maxWidth = 200}, skillsTrainingWindow.contentsPanel).right
 local bleedRateLabel = UI.DualLabel("Bleed Rate:", "-", {maxWidth = 200}, skillsTrainingWindow.contentsPanel).right
 local attackRoundsLabel = UI.DualLabel("Attack Rounds:", "0", {maxWidth = 200}, skillsTrainingWindow.contentsPanel).right
 local bloodHitsLabel = UI.DualLabel("Blood Hits:", "0", {maxWidth = 200}, skillsTrainingWindow.contentsPanel).right
 UI.Separator(skillsTrainingWindow.contentsPanel)
 --//graph
-local trainGraph = UI.createWidget("AnalyzerGraph", skillsTrainingWindow.contentsPanel)
+local trainGraph = UI.createWidget("AnalyzerGraphBlue", skillsTrainingWindow.contentsPanel)
       trainGraph:setTitle("Rounds Since Blood")
       trainGraph:setShowLabels(true)
       drawGraph(trainGraph, 0)
@@ -1095,17 +1113,17 @@ resetAnalyzerSessionData = function()
     }
     launchTime = now
     startExp = exp()
-    dmgTable = {}
-    dmgTakenTable = {}
-    healTable = {}
     expTable = {}
     totalDmg = 0
     totalDmgTaken = 0
     totalHeal = 0
-    -- peak rates + per-minute graph snapshots
-    bestDPS = 0
-    bestHPS = 0
-    bestDtps = 0
+    -- windowed max-per-round + per-round graph snapshots
+    dmgRounds = {}
+    takenRounds = {}
+    healRounds = {}
+    maxDmgRound = 0
+    maxTakenRound = 0
+    maxHealRound = 0
     lastDmgGraph = 0
     lastTakenGraph = 0
     lastHealGraph = 0
@@ -1117,8 +1135,6 @@ resetAnalyzerSessionData = function()
     first = {l="-", r="0"}
     second = {l="-", r="0"}
     third = {l="-", r="0"}
-    fourth = {l="-", r="0"}
-    five = {l="-", r="0"}
     lootedItems = {}
     useData = {}
     usedItems ={}
@@ -1140,6 +1156,7 @@ resetAnalyzerSessionData = function()
     trainMaxStreak = 0
     trainAttackRounds = 0
     trainBloodHits = 0
+    trainRoundsLost = 0
     trainBloodFlag = false
     trainTargetPos = nil
     trainTargetPosTime = 0
@@ -1317,29 +1334,6 @@ local sumT = function(t)
     return s
 end
 
--- Per-second rate over a fixed trailing window. We sum every sample that
--- landed in the last WINDOW_MS and divide by the window length in seconds.
--- IMPORTANT: divide by the *fixed* window, never by "time since first sample".
--- Dividing by the elapsed-since-first interval makes a single recent hit look
--- like a full second of damage (e.g. one 7-damage hit / 0.02s = 350/s), which
--- is what produced the absurd Max/s figures.
-local RATE_WINDOW_MS = 3000
-local valueInSeconds = function(t)
-    local d = 0
-    local i = 1
-    while i <= #t do
-        if now - t[i].t <= RATE_WINDOW_MS then
-            d = d + t[i].d
-            i = i + 1
-        else
-            -- entries are appended chronologically, so anything outside the
-            -- window is stale and can be pruned.
-            table.remove(t, i)
-        end
-    end
-    return math.floor(d / (RATE_WINDOW_MS / 1000))
-end
-
 -- The server message is "You lose N hitpoint(s) due to an attack by <name>."
 -- (crmain.cc). <name> is the raw attacker name: monsters carry an article
 -- ("a dragon", "an orc") while players are bare ("Bubba"). We capture the whole
@@ -1361,7 +1355,6 @@ onTextMessage(function(mode, text)
         end
         if val > 0 and attacker and #attacker > 0 then
           totalDmgTaken = totalDmgTaken + val
-          table.insert(dmgTakenTable, {d = val, t = now})
           if val > storage.worstHit then
             storage.worstHit = val
           end
@@ -1388,7 +1381,6 @@ onAnimatedText(function(thing, text)
   if tpos.x == ppos.x and tpos.y == ppos.y then return end
 
   totalDmg = totalDmg + value
-  table.insert(dmgTable, {d = value, t = now})
   if value > storage.bestHit then
     storage.bestHit = value
   end
@@ -1403,7 +1395,6 @@ macro(100, function()
   if cur > lastHp then
     local healed = cur - lastHp
     totalHeal = totalHeal + healed
-    table.insert(healTable, {d = healed, t = now})
     if healed > storage.bestHeal then
       storage.bestHeal = healed
     end
@@ -1468,6 +1459,10 @@ macro(2000, function()
     trainBloodFlag = false
   else
     trainRoundsSinceBlood = trainRoundsSinceBlood + 1
+    -- a round is "lost" once we've gone >=10 rounds without drawing blood
+    if trainRoundsSinceBlood >= 10 then
+      trainRoundsLost = trainRoundsLost + 1
+    end
     if trainRoundsSinceBlood > trainMaxStreak then
       trainMaxStreak = trainRoundsSinceBlood
     end
@@ -1494,7 +1489,7 @@ macro(500, function()
     end
 
     for i,v in pairs(dmgDistribution) do
-      if now - v.t > 60*1000*10 then
+      if now - v.t > DIST_WINDOW_MS then
         table.remove(dmgDistribution, i)
       else
         dmgSum = dmgSum + v.v
@@ -1509,8 +1504,6 @@ macro(500, function()
     first = dmgFinal[1] or {l="-", r="0", p=0}
     second = dmgFinal[2] or {l="-", r="0", p=0}
     third = dmgFinal[3] or {l="-", r="0", p=0}
-    fourth = dmgFinal[4] or {l="-", r="0", p=0}
-    five = dmgFinal[5] or {l="-", r="0", p=0}
 
     for k,v in pairs(dmgFinal) do
       table.insert(labelTable, {m=k, d=tonumber(v)})
@@ -1534,10 +1527,6 @@ macro(500, function()
         second = {l=name, r=val, p=pct}
       elseif i == 3 then
         third = {l=name, r=val, p=pct}
-      elseif i == 4 then
-        fourth = {l=name, r=val, p=pct}
-      elseif i == 5 then
-        five = {l=name, r=val, p=pct}
       else
         break
       end
@@ -1838,20 +1827,11 @@ function avgTable(t)
   end
 end
 
---bestdps/hps (peaks declared near the top so the reset handler can clear them)
---main loop
+-- main analyzer label refresh (text labels only; the graphs are drawn by the
+-- 2s graph macro, which also updates the windowed "Max (last ~2.5 min)" figures)
 macro(500, function()
     local lootWorth, wasteWorth, balance = bottingStats()
     local balanceDesc, hourDesc = bottingLabels(lootWorth, wasteWorth, balance)
-
-    -- per-second rates (dealt / healed / taken)
-    local curHPS = valueInSeconds(healTable)
-    local curDPS = valueInSeconds(dmgTable)
-    local curDtps = valueInSeconds(dmgTakenTable)
-
-    bestHPS = bestHPS > curHPS and bestHPS or curHPS
-    bestDPS = bestDPS > curDPS and bestDPS or curDPS
-    bestDtps = bestDtps > curDtps and bestDtps or curDtps
 
     --hunt window
     sessionTimeLabel:setText(sessionTime())
@@ -1874,17 +1854,17 @@ macro(500, function()
     --impact window
     -- damage dealt (approx)
     totalDamageLabel:setText(format_thousand(totalDmg, true))
-    maxDpsLabel:setText(format_thousand(bestDPS, true))
+    maxDpsLabel:setText(format_thousand(maxDmgRound, true))
     bestHitLabel:setText(format_thousand(storage.bestHit, true))
 
     -- damage taken
     totalTakenLabel:setText(format_thousand(totalDmgTaken, true))
-    maxDtpsLabel:setText(format_thousand(bestDtps, true))
+    maxDtpsLabel:setText(format_thousand(maxTakenRound, true))
     worstHitLabel:setText(format_thousand(storage.worstHit, true))
 
     -- damage taken by attacker (distribution; monsters + players)
-    local dist = {first, second, third, fourth, five}
-    for i=1,5 do
+    local dist = {first, second, third}
+    for i=1,3 do
       takenTops[i].left:setText(dist[i].l)
       takenTops[i].right:setText(dist[i].r)
       takenBars[i]:setPercent(dist[i].p or 0)
@@ -1894,17 +1874,23 @@ macro(500, function()
     roundsSinceBloodLabel:setText(trainRoundsSinceBlood)
     roundsSinceBloodLabel:setColor(trainRoundsSinceBlood >= 10 and "#FF0000" or (trainRoundsSinceBlood >= 7 and "#FFA500" or "#45ad25"))
     maxStreakLabel:setText(trainMaxStreak)
+    roundsLostLabel:setText(trainRoundsLost)
     attackRoundsLabel:setText(trainAttackRounds)
     bloodHitsLabel:setText(trainBloodHits)
     if trainAttackRounds > 0 then
       bleedRateLabel:setText(math.floor((trainBloodHits/trainAttackRounds)*100) .. "%")
+      -- efficiency = share of rounds that were NOT wasted (>=10 dry), as a percentage
+      local efficiency = 100 - ((trainRoundsLost / trainAttackRounds) * 100)
+      efficiencyLabel:setText(math.floor(efficiency) .. "%")
+      efficiencyLabel:setColor(efficiency >= 90 and "#45ad25" or (efficiency >= 70 and "#FFA500" or "#FF0000"))
     else
       bleedRateLabel:setText("-")
+      efficiencyLabel:setText("-")
     end
 
     -- healing (approx)
     totalHealingLabel:setText(format_thousand(totalHeal, true))
-    maxHpsLabel:setText(format_thousand(bestHPS, true))
+    maxHpsLabel:setText(format_thousand(maxHealRound, true))
     bestHealLabel:setText(format_thousand(storage.bestHeal, true))
 
     --xp window
@@ -1924,19 +1910,26 @@ macro(500, function()
 end)
 
 -- graphs, redrawn every 2s (~one attack round). With AnalyzerGraph's capacity
--- of 450 points that retains roughly the last ~15 minutes of history. The
--- combat graphs plot the per-round TOTAL (delta of the cumulative counter since
--- the previous draw); the loot/supply/xp graphs just sample their hourly rate.
+-- of 75 points that retains roughly the last ~2.5 minutes of history. The combat
+-- graphs plot the per-round TOTAL (delta of the cumulative counter since the
+-- previous draw); the loot/supply/xp graphs just sample their hourly rate. Each
+-- per-round total also feeds the windowed "Max (last ~2.5 min)" labels.
 macro(2000, function()
   drawGraph(xpGraph, expPerHour(true) or 0)
   drawGraph(lootGraph, lootHour() or 0)
   drawGraph(supplyGraph, wasteHour() or 0)
-  drawGraph(dmgGraph, totalDmg - lastDmgGraph)
+  local dmgRound = totalDmg - lastDmgGraph
   lastDmgGraph = totalDmg
-  drawGraph(takenGraph, totalDmgTaken - lastTakenGraph)
+  drawGraph(dmgGraph, dmgRound)
+  maxDmgRound = windowedMax(dmgRounds, dmgRound)
+  local takenRound = totalDmgTaken - lastTakenGraph
   lastTakenGraph = totalDmgTaken
-  drawGraph(healGraph, totalHeal - lastHealGraph)
+  drawGraph(takenGraph, takenRound)
+  maxTakenRound = windowedMax(takenRounds, takenRound)
+  local healRound = totalHeal - lastHealGraph
   lastHealGraph = totalHeal
+  drawGraph(healGraph, healRound)
+  maxHealRound = windowedMax(healRounds, healRound)
 end)
 
 --party hunt analyzer

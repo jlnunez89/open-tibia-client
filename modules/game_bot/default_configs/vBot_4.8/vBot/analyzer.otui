@@ -239,6 +239,12 @@ AnalyzerGraph < UIGraph
   font: verdana-11px-rounded
   image-source: /images/ui/graph_background
 
+AnalyzerGraphGreen < AnalyzerGraph
+  color: #03C04A
+
+AnalyzerGraphBlue < AnalyzerGraph
+  color: #4FC3F7
+
 AnalyzerProgressBar < ProgressBar
   background-color: green
   height: 5
