@@ -49,6 +49,7 @@ local luaFiles = {
   "auto_stop",
   "equip",
   -- "exeta", -- removed: uses game_cooldown module (8.0+)
+  "weapon_data",    -- generated 7.7 weapon->skill map (used by analyzer Skills Training)
   "monster_data",   -- generated 7.7 monster stats (load before monster_threat)
   "monster_threat", -- danger overlay built from monster_data
   "analyzer",

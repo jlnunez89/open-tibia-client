@@ -49,10 +49,23 @@ local trainRoundsSinceBlood = 0
 local trainMaxStreak = 0
 local trainAttackRounds = 0
 local trainBloodHits = 0
-local trainRoundsLost = 0    -- attack rounds spent at >=10 rounds since blood (wasted)
+local trainRoundsLost = 0    -- attack rounds spent locked (0 learning points left)
 local trainBloodFlag = false
 local trainTargetPos = nil       -- last-known tile of our attack target
 local trainTargetPosTime = 0     -- when trainTargetPos was captured (ms)
+-- Server learning budget (decompiled crcombat.cc): drawing blood calls
+-- ActivateLearning() -> LearningPoints = 30. Each attack round drains 1 point;
+-- each shield defend drains 1 more, and the lagged defend cooldown allows at
+-- most ~2 defends per 2s. Tries are only granted while points remain — hence
+-- the classic rules: no shield = blood every 30 hits, shield + 1 attacker = 15,
+-- shield + 2 attackers = 10. We SIMULATE that counter here; attackers are
+-- spotted via the black "attacked" square the server flashes on them (sent
+-- even for fully blocked hits).
+local TRAIN_LEARN_POINTS = 30
+local trainLearnPoints = 0       -- simulated LearningPoints (0 = skill gain locked)
+local trainRoundAttackers = 0    -- max simultaneous attackers seen this round (timed squares)
+local trainDefendTries = 0       -- shielding tries granted by the simulation
+local manaSpentSession = 0       -- mana spent this session (magic exp == mana spent, magic.cc)
 local first = {l="-", r="0"}
 local second = {l="-", r="0"}
 local third = {l="-", r="0"}
@@ -114,6 +127,60 @@ storage.analyzers.trackedBoss = storage.analyzers.trackedBoss or {}
 storage.analyzers.outfits = storage.analyzers.outfits or {}
 local trackedLoot = storage.analyzers.trackedLoot
 
+-- Time-to-advance estimation (decompiled server formulas):
+--   crskill.cc TSkillProbe::GetExpForLevel -> tries from level L to L+1 =
+--   delta * (factor/1000)^(L - min), min = 10 for weapon/shield skills, 0 for
+--   magic. {factor, delta} pairs below come from crplayer.cc SetProfession.
+--   Magic exp = mana spent (magic.cc CheckMana).
+local SKILL_CONST = {
+  -- magic requires 4x more tries after 7.4, so these constants were divided by 4 (1600->400) for our allegedly-7.1 server. 
+  -- (they actually use client 7.7 with 7.1 mechanics.
+  knight   = {sword={1100,50}, club={1100,50}, axe={1100,50}, fist={1100,50}, dist={1400,30}, shield={1100,100}, magic={3000,400}},
+  paladin  = {sword={1200,50}, club={1200,50}, axe={1200,50}, fist={1200,50}, dist={1100,30}, shield={1100,100}, magic={1400,400}},
+  sorcerer = {sword={2000,50}, club={2000,50}, axe={2000,50}, fist={1500,50}, dist={2000,30}, shield={1500,100}, magic={1100,400}},
+  druid    = {sword={1800,50}, club={1800,50}, axe={1800,50}, fist={1500,50}, dist={1800,30}, shield={1500,100}, magic={1100,400}},
+}
+-- otclient LocalPlayer skill ids: Fist=0 Club=1 Sword=2 Axe=3 Distance=4 Shielding=5
+local SKILL_IDS = {fist=0, club=1, sword=2, axe=3, dist=4, shield=5}
+local SKILL_NAMES = {fist="Fist", club="Club", sword="Sword", axe="Axe", dist="Dist"}
+storage.analyzers.vocation = storage.analyzers.vocation or "auto"
+local detectedVoc = nil   -- parsed from a self-look reply ("You see yourself. You are ...")
+local lastVocLookAt = 0
+local function vocDisplayName(v) return v:sub(1, 1):upper() .. v:sub(2) end
+
+-- Which skill does the equipped weapon train? WeaponData (vBot/weapon_data.lua,
+-- generated from objects.srv by tools/gen_weapon_data.py) maps item id ->
+-- sword/club/axe/dist/shield/wand, mirroring crcombat.cc WeaponTypeToSkill.
+local function handItems()
+  local t = {}
+  local l, r = getLeft(), getRight()
+  if l then t[#t+1] = l end
+  if r then t[#t+1] = r end
+  return t
+end
+
+local function activeAttackSkill()
+  for _, item in ipairs(handItems()) do
+    local w = WeaponData and WeaponData[item:getId()]
+    if w == "sword" or w == "club" or w == "axe" or w == "dist" then return w end
+    if w == "wand" then return nil end -- wands give no weapon-skill tries
+  end
+  return "fist"
+end
+
+local function hasShieldEquipped()
+  for _, item in ipairs(handItems()) do
+    if WeaponData and WeaponData[item:getId()] == "shield" then return true end
+  end
+  return false
+end
+
+-- remaining skill tries from "level + pct%" to the next level
+local function remainingTries(level, pct, c, min)
+  local b = c[1] / 1000
+  return c[2] * (b ^ (level - min)) * (1 - pct / 100)
+end
+
 --destroy old windows
 local windowsTable = {"MainAnalyzerWindow", 
                       "HuntingAnalyzerWindow", 
@@ -162,7 +229,7 @@ xpWindow:hide()
 xpWindow:setContentMaximumHeight(230)
 local skillsTrainingWindow = UI.createMiniWindow("SkillsTrainingAnalyzer")
 skillsTrainingWindow:hide()
-skillsTrainingWindow:setContentMaximumHeight(320)
+skillsTrainingWindow:setContentMaximumHeight(420)
 local settingsWindow = UI.createWindow("FeaturesWindow")
 settingsWindow:hide()
 local partyHuntWindow = UI.createMiniWindow("PartyAnalyzerWindow")
@@ -679,21 +746,37 @@ local xpGraph = UI.createWidget("AnalyzerGraph", xpWindow.contentsPanel)
 
 
 -- skills training (approx)
--- 7.72 rule of thumb: melee/distance/shielding skills only keep progressing if
--- you draw blood on your target at least once every ~10 attack rounds. We can't
--- see our own skill counter, so this is an approximation: a "round" is ~2s and
--- "blood" is a damage number popping on our CURRENT attack target. It can't tell
--- our hits from a partner's, so shared targets read optimistically.
-local trainNote = UI.Label("Draw blood every <=10 hits.", skillsTrainingWindow.contentsPanel)
-trainNote:setColor('#aaaaaa')
-trainNote:setHeight(28)
+-- 7.72 server rule (crcombat.cc): drawing blood refills 30 learning points;
+-- each attack round drains 1, each shield defend (max ~2 per round) drains 1
+-- more, and tries are only granted while points remain. We simulate that
+-- counter. We can't see our own skill counter, so this is an approximation:
+-- a "round" is ~2s and "blood" is a damage number popping on our CURRENT
+-- attack target — it can't tell our hits from a partner's.
+-- local trainNote = UI.Label("Blood refills 30 learn points; attacks & shield defends drain them.", skillsTrainingWindow.contentsPanel)
+-- trainNote:setColor('#aaaaaa')
+-- trainNote:setHeight(28)
 local efficiencyLabel = UI.DualLabel("Efficiency:", "-", {maxWidth = 200}, skillsTrainingWindow.contentsPanel).right
+local learnPointsLabel = UI.DualLabel("Learn Points:", "-", {maxWidth = 200}, skillsTrainingWindow.contentsPanel).right
 local roundsSinceBloodLabel = UI.DualLabel("Rounds Since Blood:", "0", {maxWidth = 200}, skillsTrainingWindow.contentsPanel).right
 local maxStreakLabel = UI.DualLabel("Worst Streak:", "0", {maxWidth = 200}, skillsTrainingWindow.contentsPanel).right
 local roundsLostLabel = UI.DualLabel("Rounds Lost:", "0", {maxWidth = 200}, skillsTrainingWindow.contentsPanel).right
 local attackRoundsLabel = UI.DualLabel("Attack Rounds:", "0", {maxWidth = 200}, skillsTrainingWindow.contentsPanel).right
 local bloodHitsLabel = UI.DualLabel("Blood Hits:", "0", {maxWidth = 200}, skillsTrainingWindow.contentsPanel).right
 local bleedRateLabel = UI.DualLabel("Bleed Rate:", "-", {maxWidth = 200}, skillsTrainingWindow.contentsPanel).right
+UI.Separator(skillsTrainingWindow.contentsPanel)
+-- time-to-advance estimates (see the SKILL_CONST notes near the top)
+local vocButton = UI.Button("Vocation: Auto (?)", function()
+  local cycle = {"auto", "knight", "paladin", "sorcerer", "druid"}
+  local idx = 1
+  for i, v in ipairs(cycle) do
+    if v == storage.analyzers.vocation then idx = i; break end
+  end
+  storage.analyzers.vocation = cycle[(idx % #cycle) + 1]
+end, skillsTrainingWindow.contentsPanel)
+local nextSkillPair = UI.DualLabel("Next Skill Adv:", "-", {maxWidth = 200}, skillsTrainingWindow.contentsPanel)
+local nextSkillTitle, nextSkillLabel = nextSkillPair.left, nextSkillPair.right
+local nextShieldLabel = UI.DualLabel("Next Shielding:", "-", {maxWidth = 200}, skillsTrainingWindow.contentsPanel).right
+local nextMagicLabel = UI.DualLabel("Next Magic:", "-", {maxWidth = 200}, skillsTrainingWindow.contentsPanel).right
 UI.Separator(skillsTrainingWindow.contentsPanel)
 --//graph
 local trainGraph = UI.createWidget("AnalyzerGraphBlue", skillsTrainingWindow.contentsPanel)
@@ -1160,6 +1243,10 @@ resetAnalyzerSessionData = function()
     trainBloodFlag = false
     trainTargetPos = nil
     trainTargetPosTime = 0
+    trainLearnPoints = 0
+    trainRoundAttackers = 0
+    trainDefendTries = 0
+    manaSpentSession = 0
     trainGraph:clear()
     drawGraph(trainGraph, 0)
     killList = {}
@@ -1432,7 +1519,41 @@ onAnimatedText(function(thing, text)
   local matchPos = (trainTargetPos and now - trainTargetPosTime <= 4000) and trainTargetPos or nil
   if matchPos and tpos.x == matchPos.x and tpos.y == matchPos.y and tpos.z == matchPos.z then
     trainBloodFlag = true
+    trainLearnPoints = TRAIN_LEARN_POINTS -- ActivateLearning(): blood refills the pool
   end
+end)
+
+-- magic level exp == mana spent (magic.cc CheckMana): track downward mana deltas
+onManaChange(function(player, mana, maxMana, oldMana)
+  if oldMana and mana < oldMana then
+    manaSpentSession = manaSpentSession + (oldMana - mana)
+  end
+end)
+
+-- vocation auto-detect: a self-look reply contains "You see yourself. You are
+-- a knight." (operate.cc); promoted titles still contain the base name.
+onTextMessage(function(mode, text)
+  if detectedVoc then return end
+  local t = text:lower()
+  if not t:find("you see yourself", 1, true) then return end
+  for _, v in ipairs({"knight", "paladin", "sorcerer", "druid"}) do
+    if t:find(v, 1, true) then
+      detectedVoc = v
+      return
+    end
+  end
+end)
+
+-- Attackers show as the black "attacked" square the server flashes on them
+-- (~1s, sent even for fully blocked hits) -> sample fast, keep the round max.
+macro(250, function()
+  local n = 0
+  for _, spec in ipairs(getSpectators()) do
+    if not spec:isLocalPlayer() and spec:isTimedSquareVisible() then
+      n = n + 1
+    end
+  end
+  if n > trainRoundAttackers then trainRoundAttackers = n end
 end)
 
 -- One tick approximates one attack round (~2s). We count a round while we're
@@ -1459,13 +1580,15 @@ macro(2000, function()
     trainBloodFlag = false
   else
     trainRoundsSinceBlood = trainRoundsSinceBlood + 1
-    -- a round is "lost" once we've gone >=10 rounds without drawing blood
-    if trainRoundsSinceBlood >= 10 then
-      trainRoundsLost = trainRoundsLost + 1
-    end
     if trainRoundsSinceBlood > trainMaxStreak then
       trainMaxStreak = trainRoundsSinceBlood
     end
+  end
+  -- each attack round drains 1 learning point; locked rounds grant no try
+  if trainLearnPoints > 0 then
+    trainLearnPoints = trainLearnPoints - 1
+  else
+    trainRoundsLost = trainRoundsLost + 1
   end
   drawGraph(trainGraph, trainRoundsSinceBlood)
 end)
@@ -1827,6 +1950,75 @@ function avgTable(t)
   end
 end
 
+-- Skills Training panel refresh. Kept as its OWN function so the big display
+-- macro below stays under Lua 5.1's 60-upvalues-per-closure limit (this block
+-- alone captures ~25 locals: labels, counters, skill tables, helpers).
+local function updateSkillsTrainingPanel()
+    -- bleed-frequency readout
+    roundsSinceBloodLabel:setText(trainRoundsSinceBlood)
+    local lpColor = trainLearnPoints == 0 and "#FF0000" or (trainLearnPoints <= 10 and "#FFA500" or "#45ad25")
+    learnPointsLabel:setText(trainLearnPoints .. "/" .. TRAIN_LEARN_POINTS)
+    learnPointsLabel:setColor(lpColor)
+    roundsSinceBloodLabel:setColor(lpColor)
+    maxStreakLabel:setText(trainMaxStreak)
+    roundsLostLabel:setText(trainRoundsLost)
+    attackRoundsLabel:setText(trainAttackRounds)
+    bloodHitsLabel:setText(trainBloodHits)
+    if trainAttackRounds > 0 then
+      bleedRateLabel:setText(math.floor((trainBloodHits/trainAttackRounds)*100) .. "%")
+      -- efficiency = share of rounds that were NOT locked (0 learn points), as a percentage
+      local efficiency = 100 - ((trainRoundsLost / trainAttackRounds) * 100)
+      efficiencyLabel:setText(math.floor(efficiency) .. "%")
+      efficiencyLabel:setColor(efficiency >= 90 and "#45ad25" or (efficiency >= 70 and "#FFA500" or "#FF0000"))
+    else
+      bleedRateLabel:setText("-")
+      efficiencyLabel:setText("-")
+    end
+
+    -- time-to-advance estimates: remaining tries from the server skill curve
+    -- divided by the session pace (tries actually earned / session seconds)
+    local vocPref = storage.analyzers.vocation
+    local vocName = vocPref ~= "auto" and vocPref or detectedVoc
+    if vocPref == "auto" then
+      vocButton:setText("Vocation: Auto (" .. (detectedVoc and vocDisplayName(detectedVoc) or "?") .. ")")
+    else
+      vocButton:setText("Vocation: " .. vocDisplayName(vocPref))
+    end
+    local consts = vocName and SKILL_CONST[vocName]
+    local up = math.max(uptime or 1, 1)
+    local atk = activeAttackSkill()
+    nextSkillTitle:setText(atk and ("Next " .. SKILL_NAMES[atk] .. ":") or "Next Skill:")
+    if consts and atk then
+      local remaining = remainingTries(player:getSkillLevel(SKILL_IDS[atk]),
+          player:getSkillLevelPercent(SKILL_IDS[atk]), consts[atk], 10)
+      local rate = (trainAttackRounds - trainRoundsLost) / up
+      nextSkillLabel:setText(rate > 0 and ("~" .. niceTimeFormat(math.ceil(remaining / rate))) or "-")
+    else
+      nextSkillLabel:setText("-") -- wand equipped or unknown vocation
+    end
+    if consts and hasShieldEquipped() then
+      local remaining = remainingTries(player:getSkillLevel(SKILL_IDS.shield),
+          player:getSkillLevelPercent(SKILL_IDS.shield), consts.shield, 10) 
+      local rate = trainDefendTries / up
+      nextShieldLabel:setText(rate > 0 and ("~" .. niceTimeFormat(math.ceil(remaining / rate))) or "-")
+    else
+      nextShieldLabel:setText("-")
+    end
+    if consts then
+      local remaining = remainingTries(player:getMagicLevel(), player:getMagicLevelPercent(), consts.magic, 0)
+      local rate = manaSpentSession / up
+      nextMagicLabel:setText(rate > 0 and ("~" .. niceTimeFormat(math.ceil(remaining / rate))) or "-")
+    else
+      nextMagicLabel:setText("-")
+    end
+    -- self-look once (throttled) so the vocation auto-detect can parse the reply
+    if vocPref == "auto" and not detectedVoc and skillsTrainingWindow:isVisible()
+        and now - lastVocLookAt > 30000 then
+      lastVocLookAt = now
+      g_game.look(player)
+    end
+end
+
 -- main analyzer label refresh (text labels only; the graphs are drawn by the
 -- 2s graph macro, which also updates the windowed "Max (last ~2.5 min)" figures)
 macro(500, function()
@@ -1870,23 +2062,8 @@ macro(500, function()
       takenBars[i]:setPercent(dist[i].p or 0)
     end
 
-    -- skills training (approx): bleed-frequency readout
-    roundsSinceBloodLabel:setText(trainRoundsSinceBlood)
-    roundsSinceBloodLabel:setColor(trainRoundsSinceBlood >= 10 and "#FF0000" or (trainRoundsSinceBlood >= 7 and "#FFA500" or "#45ad25"))
-    maxStreakLabel:setText(trainMaxStreak)
-    roundsLostLabel:setText(trainRoundsLost)
-    attackRoundsLabel:setText(trainAttackRounds)
-    bloodHitsLabel:setText(trainBloodHits)
-    if trainAttackRounds > 0 then
-      bleedRateLabel:setText(math.floor((trainBloodHits/trainAttackRounds)*100) .. "%")
-      -- efficiency = share of rounds that were NOT wasted (>=10 dry), as a percentage
-      local efficiency = 100 - ((trainRoundsLost / trainAttackRounds) * 100)
-      efficiencyLabel:setText(math.floor(efficiency) .. "%")
-      efficiencyLabel:setColor(efficiency >= 90 and "#45ad25" or (efficiency >= 70 and "#FFA500" or "#FF0000"))
-    else
-      bleedRateLabel:setText("-")
-      efficiencyLabel:setText("-")
-    end
+    -- skills training panel (split out to dodge the 60-upvalue closure limit)
+    updateSkillsTrainingPanel()
 
     -- healing (approx)
     totalHealingLabel:setText(format_thousand(totalHeal, true))
@@ -1926,6 +2103,19 @@ macro(2000, function()
   lastTakenGraph = totalDmgTaken
   drawGraph(takenGraph, takenRound)
   maxTakenRound = windowedMax(takenRounds, takenRound)
+  -- shielding simulation: 1 shield try per defend while learning points remain;
+  -- the lagged defend cooldown allows at most ~2 defends per 2s round, and a
+  -- defend only drains/grants when a shield is worn (crcombat.cc). Attacker
+  -- count comes from the timed-square sampler, so full blocks count too.
+  if hasShieldEquipped() then
+    for _ = 1, math.min(trainRoundAttackers, 2) do
+      if trainLearnPoints > 0 then
+        trainLearnPoints = trainLearnPoints - 1
+        trainDefendTries = trainDefendTries + 1
+      end
+    end
+  end
+  trainRoundAttackers = 0
   local healRound = totalHeal - lastHealGraph
   lastHealGraph = totalHeal
   drawGraph(healGraph, healRound)
