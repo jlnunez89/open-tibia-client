@@ -6,9 +6,17 @@ TargetBotEntry < Label
   $focus:
     background-color: #00000055
 
+TrainingSourceBoxPopupMenu < ComboBoxPopupMenu
+TrainingSourceBoxPopupMenuButton < ComboBoxPopupMenuButton
+TrainingSourceBox < ComboBox
+  @onSetup: |
+    self:addOption("TargetBot")
+    self:addOption("Current Target")
+    self:addOption("Party Members")
+
 TrainingWindow < MainWindow
   !text: tr('TargetBot Training')
-  size: 290 215
+  size: 290 245
   @onEscape: self:hide()
 
   Label
@@ -19,11 +27,29 @@ TrainingWindow < MainWindow
     margin-top: 2
     text-align: center
     text-auto-resize: true
-    !text: tr('Hold the target alive for skill training:\nstop attacking when it drops low and\nresume once it heals back up.')
+    !text: tr('Skill training: switch between targets from the chosen\npool. A target is picked once it heals to/above the\nresume %, and dropped once it falls to/below the stop %.')
+
+  Label
+    id: sourceLabel
+    anchors.left: parent.left
+    anchors.verticalCenter: source.verticalCenter
+    margin-left: 8
+    text-auto-resize: true
+    !text: tr('Target source:')
+
+  TrainingSourceBox
+    id: source
+    anchors.top: info.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 10
+    margin-left: 90
+    margin-right: 8
+    height: 20
 
   ExtrasScrollBar
     id: stopBelow
-    anchors.top: info.bottom
+    anchors.top: source.bottom
     anchors.left: parent.left
     anchors.right: parent.right
     margin-top: 10

@@ -85,16 +85,28 @@ targetbotMacro = macro(100, function()
   dangerValue = dangerLevel
 
   ui.danger.right:setText(dangerLevel)
-  if highestPriorityParams and not isInPz() then
-    ui.target.right:setText(highestPriorityParams.creature:getName())
-    ui.config.right:setText(highestPriorityParams.config.name)
-    TargetBot.Creature.attack(highestPriorityParams, targets, looting)    
+
+  -- Training mode overrides normal target selection: it picks (and switches
+  -- between) targets from the configured pool, bounded by the stop/resume HP
+  -- band -- a target is only acquired once it heals to/above resumeAbove% and
+  -- dropped once it falls to/below stopBelow%. See creature_attack.lua for the
+  -- selector. Outside training, attack the highest-priority monster as usual.
+  local trainingOn = storage.targetTraining and storage.targetTraining.enabled
+  local attackParams = highestPriorityParams
+  if trainingOn then
+    attackParams = TargetBot.Creature.getTrainingTarget()
+  end
+
+  if attackParams and not isInPz() then
+    ui.target.right:setText(attackParams.creature:getName())
+    ui.config.right:setText(attackParams.config.name)
+    TargetBot.Creature.attack(attackParams, targets, looting)
     if lootingStatus:len() > 0 then
       TargetBot.setStatus("Attack & " .. lootingStatus)
+    elseif trainingOn then
+      TargetBot.setStatus("Training (attacking " .. attackParams.creature:getName() .. ")")
     elseif cavebotAllowance > now then
       TargetBot.setStatus("Luring using CaveBot")
-    elseif TargetBot.Creature.trainingHold then
-      TargetBot.setStatus("Training (holding target)")
     else
       TargetBot.setStatus("Attacking")
       if not lureEnabled then
@@ -106,6 +118,13 @@ targetbotMacro = macro(100, function()
     return
   end
 
+  -- Training mode with no eligible target: stop damaging whatever we were
+  -- holding (it dropped to/below stopBelow% and nothing has healed back to
+  -- resumeAbove% yet) and wait for a target to heal up.
+  if trainingOn and g_game.isAttacking() then
+    g_game.cancelAttackAndFollow()
+  end
+
   ui.target.right:setText("-")
   ui.config.right:setText("-")
   if looting then
@@ -114,6 +133,8 @@ targetbotMacro = macro(100, function()
   end
   if lootingStatus:len() > 0 then
     TargetBot.setStatus(lootingStatus)
+  elseif trainingOn then
+    TargetBot.setStatus("Training (waiting to resume)")
   else
     TargetBot.setStatus("Waiting")
   end
@@ -177,6 +198,10 @@ local training = storage.targetTraining
 if training.enabled == nil then training.enabled = false end
 if training.stopBelow == nil then training.stopBelow = 40 end
 if training.resumeAbove == nil then training.resumeAbove = 70 end
+-- Where Training Mode draws its target pool from: TargetBot rules, the player's
+-- current manual target, or visible party members.
+local trainingSources = {["TargetBot"] = true, ["Current Target"] = true, ["Party Members"] = true}
+if not trainingSources[training.source] then training.source = "TargetBot" end
 -- Resume must stay strictly above stop so there's a healing band (hysteresis).
 if training.resumeAbove <= training.stopBelow then
   training.resumeAbove = math.min(100, training.stopBelow + 10)
@@ -213,6 +238,13 @@ do
 
     wireScroll(trainingWindow.stopBelow, "stopBelow", "Stop attacking at/below")
     wireScroll(trainingWindow.resumeAbove, "resumeAbove", "Resume attacking at/above")
+
+    trainingWindow.source:setCurrentOption(training.source)
+    trainingWindow.source.onOptionChange = function(widget, option)
+      if trainingSources[option] then
+        training.source = option
+      end
+    end
 
     ui.training.edit.onClick = function()
       trainingWindow:show()

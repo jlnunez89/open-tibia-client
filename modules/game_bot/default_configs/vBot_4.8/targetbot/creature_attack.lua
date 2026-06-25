@@ -9,9 +9,127 @@ local dynamicLureDelay = false
 local attackJitterFor = nil
 local attackJitterUntil = 0
 
--- Training mode: id of the creature we're currently "holding" (not damaging so
--- it doesn't die). Kept across ticks so the stop/resume hysteresis is stable.
-local trainingHoldId = nil
+-- Training mode target selection. Instead of just holding a single creature
+-- alive, Training Mode picks a target from the configured pool and switches
+-- between targets using the stop/resume HP band: a target is only ACQUIRED once
+-- it has healed to/above resumeAbove%, and is DROPPED once it falls to/below
+-- stopBelow%. Between the two thresholds we keep the current target (hysteresis)
+-- so selection doesn't flap. This lets the bot, e.g., burst one summoned Monk
+-- down then move to a second healthy Monk while the first heals. The id of the
+-- currently selected creature is kept across ticks. See TargetBot.Creature.
+-- getTrainingTarget below; it returns the params table to attack (or nil).
+local trainingTargetId = nil
+
+-- Minimal config used when a training pool creature matches no TargetBot rule
+-- (e.g. the player's current manual target or a party member). Chase + basic
+-- auto-attack only; no spells/runes are cast for these.
+local defaultTrainingConfig = {
+  name = "Training",
+  priority = 1,
+  danger = 0,
+  maxDistance = 10,
+  chase = true,
+  keepDistance = false,
+  keepDistanceRange = 1,
+}
+
+-- True for creatures Training Mode may attack from the "TargetBot" pool. Unlike
+-- the normal target scan (which is limited to plain monsters), this also allows
+-- summoned creatures so training on another player's summons (e.g. Monks) works.
+-- Creature types (see gamelib/creature.lua): 1 = monster, 2 = npc, 3 = own
+-- summon, 4 = other player's summon. The bot sandbox doesn't expose those
+-- constants, so the raw numbers are used (matching the rest of the targetbot).
+local function isTrainableMonster(c)
+  if c:isLocalPlayer() or c:isPlayer() then return false end
+  local t = c:getType()
+  return c:isMonster() or t == 3 or t == 4
+end
+
+local function trainingParamsFor(creature, params)
+  if params then return params end
+  return {config = defaultTrainingConfig, creature = creature, danger = 0, priority = 1}
+end
+
+TargetBot.Creature.getTrainingTarget = function()
+  local training = storage.targetTraining
+  if not (training and training.enabled) then
+    trainingTargetId = nil
+    return nil
+  end
+  local stopBelow = tonumber(training.stopBelow) or 40
+  local resumeAbove = tonumber(training.resumeAbove) or 70
+  local source = training.source or "TargetBot"
+  local pos = player:getPosition()
+
+  -- Build the candidate pool (deduped by id). Each entry carries the creature,
+  -- optional TargetBot params (for proper spell/rune attacking), and current HP.
+  local pool = {}
+  local seen = {}
+  local function add(creature, params)
+    if not creature then return end
+    local id = creature:getId()
+    if seen[id] then return end
+    local hp = creature:getHealthPercent()
+    if not hp or hp <= 0 then return end
+    seen[id] = true
+    pool[#pool + 1] = {creature = creature, params = params, hp = hp, id = id}
+  end
+
+  if source == "Current Target" then
+    add(g_game.getAttackingCreature())
+    -- Keep watching the last picked target even after we stopped attacking it,
+    -- so we can detect it healing back to resumeAbove% and resume.
+    if trainingTargetId then add(getCreatureById(trainingTargetId)) end
+  elseif source == "Party Members" then
+    for _, spec in ipairs(g_map.getSpectatorsInRange(pos, false, 7, 7)) do
+      if not spec:isLocalPlayer() and spec:isPlayer() and spec:isPartyMember() then
+        add(spec)
+      end
+    end
+  else -- "TargetBot": pool bounded by the TargetBot creature rules.
+    for _, spec in ipairs(g_map.getSpectatorsInRange(pos, false, 7, 7)) do
+      if isTrainableMonster(spec) then
+        local path = findPath(pos, spec:getPosition(), 7, {ignoreLastCreature = true, ignoreNonPathable = true, ignoreCost = true, ignoreCreatures = true})
+        if path then
+          local params = TargetBot.Creature.calculateParams(spec, path)
+          if params.priority > 0 then
+            add(spec, params)
+          end
+        end
+      end
+    end
+  end
+
+  -- Resolve the currently-held target within the pool.
+  local current = nil
+  if trainingTargetId then
+    for _, e in ipairs(pool) do
+      if e.id == trainingTargetId then current = e break end
+    end
+  end
+
+  -- Keep the current target until it drops to/below stopBelow% (de-select).
+  if current and current.hp > stopBelow then
+    return trainingParamsFor(current.creature, current.params)
+  end
+
+  -- Acquire a new target: the healthiest candidate at/above resumeAbove%. This
+  -- naturally rotates to a fresh, full-HP target while the previous one heals.
+  local best = nil
+  for _, e in ipairs(pool) do
+    if e.hp >= resumeAbove and (not best or e.hp > best.hp) then
+      best = e
+    end
+  end
+  if best then
+    trainingTargetId = best.id
+    return trainingParamsFor(best.creature, best.params)
+  end
+
+  -- Nothing healthy enough yet: stop and wait for a target to heal up.
+  trainingTargetId = nil
+  return nil
+end
 
 -- Anti-detection: when too many monsters are clustered around the player,
 -- step away from their centroid to break stationary-tank patterns. Gated
@@ -59,47 +177,6 @@ TargetBot.Creature.attack = function(params, targets, isLooting) -- params {conf
 
   local config = params.config
   local creature = params.creature
-  
-  -- Training mode: hold the target alive instead of killing it. For skill
-  -- training a summoned healer (e.g. a Monk) is attacked for distance/magic
-  -- skills while other monsters hit us for shielding. The healer heals
-  -- randomly, so at high skill we can burst it down between heals -- this stops
-  -- our damage once it drops to/below stopBelow% HP and only resumes once it
-  -- heals back above resumeAbove% (the gap is hysteresis, so attacks don't flap
-  -- on/off around a single threshold). We keep the target selected and keep
-  -- walking (to hold position); we only stop dealing damage. Looting and other
-  -- targets are unaffected.
-  TargetBot.Creature.trainingHold = false
-  local training = storage.targetTraining
-  if training and training.enabled then
-    local hp = creature:getHealthPercent()
-    if hp then
-      local cid = creature:getId()
-      if trainingHoldId == cid then
-        if hp >= training.resumeAbove then trainingHoldId = nil end
-      elseif hp <= training.stopBelow then
-        trainingHoldId = cid
-      end
-      if trainingHoldId == cid then
-        TargetBot.Creature.trainingHold = true
-        -- Stop dealing damage. Use cancelAttackAndFollow() (NOT cancelAttack):
-        -- bare cancelAttack only clears the local attack indicator (the red
-        -- square) without reliably sending the stop to the server, so the
-        -- character keeps auto-attacking. cancelAttackAndFollow sends the real
-        -- cancel packet -- it's the same call creature_priority.lua uses for its
-        -- pvp-safe stop. Re-issue every tick while held (guarded by isAttacking)
-        -- so if anything re-acquires the target we immediately drop it again.
-        if g_game.isAttacking() then
-          g_game.cancelAttackAndFollow()
-        end
-        -- Keep position (e.g. keep-distance) so we're ready when it heals.
-        if not isLooting then
-          TargetBot.Creature.walk(creature, config, targets)
-        end
-        return
-      end
-    end
-  end
 
   if g_game.getAttackingCreature() ~= creature then
     -- Anti-detection: skip attack initiation entirely during a humanize pause.
