@@ -27,7 +27,7 @@ TrainingWindow < MainWindow
     margin-top: 2
     text-align: center
     text-auto-resize: true
-    !text: tr('Skill training: switch between targets from the chosen\npool. A target is picked once it heals to/above the\nresume %, and dropped once it falls to/below the stop %.')
+    !text: tr('Skill training: switch between targets from the chosen\npool. A target is picked once it heals to/above the\nresume %%, and dropped once it falls to/below the stop %%.')
 
   Label
     id: sourceLabel

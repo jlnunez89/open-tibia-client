@@ -356,7 +356,7 @@ addCheckBox("checkPlayer", "Check Players", true, rightPanel, "Auto look on play
 -- names are unique, so once we've identified someone we can remember them for a
 -- long time; the only reason to re-look is to catch a level up / promotion, and
 -- we don't need that to be fresh. Higher = fewer looks = stickier marks.
-addScrollBar("checkPlayerTTL", "Re-look Players After (min)", 30, 300, 30, rightPanel, "How long to remember a player before looking at them again to refresh their level/vocation. Higher values mean fewer, stickier looks.")
+addScrollBar("checkPlayerTTL", "Look Again (minutes)", 30, 300, 30, rightPanel, "How long to remember a player before looking at them again to refresh their level/vocation. Higher values mean fewer, stickier looks.")
 if true then
   local found
   -- Players we've already looked at, keyed by player NAME -> timestamp of the
