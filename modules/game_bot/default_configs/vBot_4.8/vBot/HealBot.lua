@@ -173,6 +173,10 @@ ui.title:setOn(currentSettings.enabled)
 ui.title.onClick = function(widget)
   currentSettings.enabled = not currentSettings.enabled
   widget:setOn(currentSettings.enabled)
+  -- Wake the heal loops so a freshly (re)enabled profile evaluates immediately
+  -- instead of waiting for the next HP/MP change to clear standby.
+  standBySpells = false
+  standByItems = false
   vBotConfigSave("heal")
 end
 
@@ -551,6 +555,11 @@ if rootWidget then
   end
 
   local loadSettings = function()
+    -- Switching profile / resetting swaps in a different rule set, so the cached
+    -- standby flags no longer reflect it. Clear them so the new profile is
+    -- evaluated on the next tick rather than staying asleep until HP/MP changes.
+    standBySpells = false
+    standByItems = false
     selectedSpellEntry = nil
     selectedItemEntry = nil
     ui.title:setOn(currentSettings.enabled)
@@ -584,7 +593,7 @@ if rootWidget then
     currentSettings.MessageDelay = false
     currentSettings.Interval = true
     currentSettings.Conditions = true
-    currentSettings.name = "Profile #" .. HealBotConfig.currentBotProfile
+    currentSettings.name = "Profile #" .. HealBotConfig.currentHealBotProfile
   end
 
   -- profile buttons
@@ -616,12 +625,16 @@ if rootWidget then
   HealBot.setOff = function()
     currentSettings.enabled = false
     ui.title:setOn(currentSettings.enabled)
+    standBySpells = false
+    standByItems = false
     vBotConfigSave("atk")
   end
 
   HealBot.setOn = function()
     currentSettings.enabled = true
     ui.title:setOn(currentSettings.enabled)
+    standBySpells = false
+    standByItems = false
     vBotConfigSave("atk")
   end
 
@@ -662,7 +675,10 @@ macro(100, function()
   local say = function(spell) _origSay(spell); lastHealCastAt = now end
   local somethingIsOnCooldown = false
 
-  for _, entry in pairs(currentSettings.spellTable) do
+  -- ipairs (not pairs) so rules are evaluated in stored order, which is the
+  -- heal priority set via Move Up / Move Down. pairs has no defined order and
+  -- would let a lower-priority rule fire first.
+  for _, entry in ipairs(currentSettings.spellTable) do
     if entry.enabled and entry.cost < mana() then
       if canCast(entry.spell, not currentSettings.Conditions, not currentSettings.Cooldown) then
         if entry.origin == "HP%" then
@@ -750,7 +766,8 @@ macro(100, function()
     end
   end
 
-  for _, entry in pairs(currentSettings.itemTable) do
+  -- ipairs (not pairs) so item rules respect their priority order.
+  for _, entry in ipairs(currentSettings.itemTable) do
     local item = findItem(entry.item)
     if (not currentSettings.Visible or item) and entry.enabled then
       if entry.origin == "HP%" then

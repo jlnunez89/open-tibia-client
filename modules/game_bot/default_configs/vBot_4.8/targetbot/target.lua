@@ -140,6 +140,29 @@ targetbotMacro = macro(100, function()
   end
 end)
 
+-- Standalone Training Mode loop. Training Mode should be honored even when the
+-- TargetBot itself is OFF: requiring the TargetBot to be running is unintuitive,
+-- especially for the "Current Target" / "Party Members" sources, which don't
+-- depend on TargetBot rules at all. While the main targetbotMacro above is on it
+-- already drives training; this loop only takes over when that macro is off.
+local trainingMacro = macro(100, function()
+  if targetbotMacro.isOn() then return end -- main loop already handles training
+  local training = storage.targetTraining
+  if not (training and training.enabled) then return end
+  if isInPz() then return end
+
+  TargetBot.walkTo(nil) -- reset walking, mirroring the main loop
+  local attackParams = TargetBot.Creature.getTrainingTarget()
+  if attackParams then
+    TargetBot.Creature.attack(attackParams, 0, false)
+    TargetBot.walk()
+  elseif g_game.isAttacking() then
+    -- Held target dropped to/below stopBelow% and nothing has healed back to
+    -- resumeAbove% yet: stop attacking and wait for a target to heal up.
+    g_game.cancelAttackAndFollow()
+  end
+end)
+
 -- config, its callback is called immediately, data can be nil
 config = Config.setup("targetbot_configs", configWidget, "json", function(name, enabled, data)
   if not data then

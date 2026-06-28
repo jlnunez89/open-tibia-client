@@ -352,16 +352,23 @@ end
 -- (no marker rune support / WG (3156) is post-7.7).
 
 addCheckBox("checkPlayer", "Check Players", true, rightPanel, "Auto look on players and mark level and vocation on character model")
+-- How long (in minutes) before we re-look a player we've already seen. Player
+-- names are unique, so once we've identified someone we can remember them for a
+-- long time; the only reason to re-look is to catch a level up / promotion, and
+-- we don't need that to be fresh. Higher = fewer looks = stickier marks.
+addScrollBar("checkPlayerTTL", "Re-look Players After (min)", 30, 300, 30, rightPanel, "How long to remember a player before looking at them again to refresh their level/vocation. Higher values mean fewer, stickier looks.")
 if true then
   local found
-  -- Players we've already looked at, keyed by creature id -> timestamp of the
-  -- look. Prevents re-looking the same person every second (which spams the
-  -- server and is an obvious bot tell) - the old code relied on getText()=="",
-  -- so anyone whose look reply failed to parse (e.g. a vocation wording we
-  -- didn't handle) was re-looked forever. We refresh only after RELOOK_MS in
-  -- case they leveled up or got promoted.
+  -- Players we've already looked at, keyed by player NAME -> timestamp of the
+  -- look. Names are unique, so keying by name (instead of the volatile creature
+  -- id, which changes whenever a player leaves and re-enters our view) means we
+  -- remember someone across re-encounters and don't keep re-looking them. This
+  -- prevents the constant look spam (an obvious bot tell). We only refresh after
+  -- the configurable TTL in case they leveled up or got promoted.
   local lookedAt = {}
-  local RELOOK_MS = 60000
+  local function relookMs()
+    return (tonumber(settings.checkPlayerTTL) or 30) * 60000
+  end
 
   -- The vanilla 7.72 client renders a 15x11 tile viewport with the player
   -- centred, so a player is only actually on our screen when within 7 columns
@@ -393,8 +400,8 @@ if true then
         if pos.z == ppos.z
             and math.abs(pos.x - ppos.x) <= VIEW_X
             and math.abs(pos.y - ppos.y) <= VIEW_Y then
-          local last = lookedAt[spec:getId()]
-          if not last or now - last > RELOOK_MS then
+          local last = lookedAt[spec:getName()]
+          if not last or now - last > relookMs() then
             return spec
           end
         end
@@ -406,14 +413,15 @@ if true then
   macro(1000, function()
     if not settings.checkPlayer then return end
     -- Drop stale entries so the table stays bounded and players naturally get a
-    -- refreshed look once RELOOK_MS has elapsed.
-    for id, ts in pairs(lookedAt) do
-      if now - ts > RELOOK_MS then lookedAt[id] = nil end
+    -- refreshed look once the TTL has elapsed.
+    local ttl = relookMs()
+    for name, ts in pairs(lookedAt) do
+      if now - ts > ttl then lookedAt[name] = nil end
     end
     local spec = nextUnchecked()
     if spec then
       g_game.look(spec)
-      lookedAt[spec:getId()] = now -- record regardless of parse success
+      lookedAt[spec:getName()] = now -- record regardless of parse success
       found = now
     end
   end)
