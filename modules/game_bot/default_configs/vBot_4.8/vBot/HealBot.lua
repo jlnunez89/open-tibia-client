@@ -1,6 +1,60 @@
 local standBySpells = false
 local standByItems = false
 
+-- ============================================================================
+-- Anti-detection: suspicious mana-jump guard.
+--
+-- Blue-team / GM trap: an admin instantly fills the character's mana, and a
+-- naive rule ("when mana is high => cast") fires within milliseconds, exposing
+-- the automation -- no human reacts that fast. We defend by watching every
+-- mana update: a large POSITIVE jump that we did not cause by drinking a
+-- potion is treated as suspicious, and mana-triggered casts / item-uses
+-- (MP and MP% rules) are suppressed for a randomized, human-like cooldown.
+-- HP-based healing is never suppressed, so survivability is unaffected, and a
+-- normal regen creep (e.g. 99% -> 100%) is far below the jump threshold so it
+-- still trains as usual.
+-- ============================================================================
+local manaSuspiciousUntil = 0   -- mana-condition rules are blocked while now < this
+local lastPotionDrinkAt = 0     -- refreshed on the client's "Aaaah..." drink tell
+-- Tunables (percentage points / milliseconds):
+local manaJumpPct = 20          -- single-update mana % increase that counts as a jump
+local potionGraceMs = 2500      -- a jump within this window of a drink is legit (potion)
+local suspicionMinMs = 10000    -- randomized suppression window after a suspicious jump
+local suspicionMaxMs = 60000
+-- Human reaction delay before a NORMAL (regen-driven) mana-triggered cast, so
+-- it never fires the exact instant mana ticks up to the trigger value.
+local manaReactMinMs = 1000
+local manaReactMaxMs = 5000
+local manaReactReadyAt = 0      -- armed reaction deadline for a pending mana cast
+
+local manaConditionSuppressed = function()
+  return now < manaSuspiciousUntil
+end
+
+-- Evaluates a rule's trigger against the current state.
+-- origin: HP / HP% / MP / MP% / burst ; sign: > (>=) / < (<=) / = (==).
+local conditionMet = function(origin, sign, value)
+  local cur
+  if origin == "HP%" then cur = hppercent()
+  elseif origin == "HP" then cur = hp()
+  elseif origin == "MP%" then cur = manapercent()
+  elseif origin == "MP" then cur = mana()
+  elseif origin == "burst" then cur = burstDamageValue()
+  else return false end
+  if sign == "=" then return cur == value
+  elseif sign == ">" then return cur >= value
+  elseif sign == "<" then return cur <= value end
+  return false
+end
+
+-- The client shows "Aaaah..." when the character drinks a mana/health fluid;
+-- reuse it to whitelist legitimate self-inflicted refills.
+onTalk(function(name, level, mode, text, channelId, pos)
+  if name == player:getName() and text == "Aaaah..." then
+    lastPotionDrinkAt = now
+  end
+end)
+
 local red = "#ff0800" -- "#ff0800" / #ea3c53 best
 local blue = "#7ef9ff"
 
@@ -674,75 +728,55 @@ macro(100, function()
   local _origSay = say
   local say = function(spell) _origSay(spell); lastHealCastAt = now end
   local somethingIsOnCooldown = false
+  local manaReactionPending = false
 
   -- ipairs (not pairs) so rules are evaluated in stored order, which is the
   -- heal priority set via Move Up / Move Down. pairs has no defined order and
   -- would let a lower-priority rule fire first.
   for _, entry in ipairs(currentSettings.spellTable) do
-    if entry.enabled and entry.cost < mana() then
+    -- Mana-triggered rules are the ones a full-mana GM gift would exploit;
+    -- hold them during the suspicion window. HP / burst rules are unaffected.
+    local manaRule = (entry.origin == "MP" or entry.origin == "MP%")
+    if entry.enabled and entry.cost < mana() and not (manaRule and manaConditionSuppressed()) then
       if canCast(entry.spell, not currentSettings.Conditions, not currentSettings.Cooldown) then
-        if entry.origin == "HP%" then
-          if entry.sign == "=" and hppercent() == entry.value then
-            say(entry.spell)
-            return
-          elseif entry.sign == ">" and hppercent() >= entry.value then
-            say(entry.spell)
-            return
-          elseif entry.sign == "<" and hppercent() <= entry.value then
-            say(entry.spell)
-            return
-          end
-        elseif entry.origin == "HP" then
-          if entry.sign == "=" and hp() == entry.value then
-            say(entry.spell)
-            return
-          elseif entry.sign == ">" and hp() >= entry.value then
-            say(entry.spell)
-            return
-          elseif entry.sign == "<" and hp() <= entry.value then
-            say(entry.spell)
-            return
-          end
-        elseif entry.origin == "MP%" then
-          if entry.sign == "=" and manapercent() == entry.value then
-            say(entry.spell)
-            return
-          elseif entry.sign == ">" and manapercent() >= entry.value then
-            say(entry.spell)
-            return
-          elseif entry.sign == "<" and manapercent() <= entry.value then
+        if conditionMet(entry.origin, entry.sign, entry.value) then
+          if manaRule then
+            -- Human reaction time: don't fire the exact instant mana ticks up
+            -- to the trigger; wait a randomized 1-5s after the condition first
+            -- holds. While waiting, fall through so a lower-priority HP
+            -- emergency heal can still act this tick.
+            if manaReactReadyAt == 0 then
+              manaReactReadyAt = now + math.random(manaReactMinMs, manaReactMaxMs)
+            end
+            if now >= manaReactReadyAt then
+              manaReactReadyAt = 0
+              say(entry.spell)
+              return
+            else
+              manaReactionPending = true
+            end
+          else
             say(entry.spell)
             return
           end
-        elseif entry.origin == "MP" then
-          if entry.sign == "=" and mana() == entry.value then
-            say(entry.spell)
-            return
-          elseif entry.sign == ">" and mana() >= entry.value then
-            say(entry.spell)
-            return
-          elseif entry.sign == "<" and mana() <= entry.value then
-            say(entry.spell)
-            return
-          end    
-        elseif entry.origin == "burst" then
-          if entry.sign == "=" and burstDamageValue() == entry.value then
-            say(entry.spell)
-            return
-          elseif entry.sign == ">" and burstDamageValue() >= entry.value then
-            say(entry.spell)
-            return
-          elseif entry.sign == "<" and burstDamageValue() <= entry.value then
-            say(entry.spell)
-            return
-          end    
         end
       else
         somethingIsOnCooldown = true
       end
     end
   end
-  if not somethingIsOnCooldown then
+
+  -- No mana rule is currently eligible -> clear any armed reaction timer so the
+  -- next trigger re-arms a fresh delay (a stale timer must never fire instantly).
+  if not manaReactionPending then
+    manaReactReadyAt = 0
+  end
+
+  -- Never sleep while a mana cast is waiting out its reaction delay, or while
+  -- suppressing a suspicious jump: mana stays pinned at the trigger value, so
+  -- no further mana-change event would wake us. Keep polling so the held cast
+  -- fires once its timer elapses.
+  if not somethingIsOnCooldown and not manaConditionSuppressed() and not manaReactionPending then
     standBySpells = true 
   end
 end)
@@ -769,7 +803,8 @@ macro(100, function()
   -- ipairs (not pairs) so item rules respect their priority order.
   for _, entry in ipairs(currentSettings.itemTable) do
     local item = findItem(entry.item)
-    if (not currentSettings.Visible or item) and entry.enabled then
+    local manaRule = (entry.origin == "MP" or entry.origin == "MP%")
+    if (not currentSettings.Visible or item) and entry.enabled and not (manaRule and manaConditionSuppressed()) then
       if entry.origin == "HP%" then
         if entry.sign == "=" and hppercent() == entry.value then
           usewith(entry.item, player)
@@ -828,7 +863,9 @@ macro(100, function()
       end
     end
   end
-  standByItems = true
+  if not manaConditionSuppressed() then
+    standByItems = true
+  end
 end)
 UI.Separator()
 
@@ -840,4 +877,17 @@ end)
 onManaChange(function(player, mana, maxMana, oldMana, oldMaxMana)
   standByItems = false
   standBySpells = false
+
+  -- Suspicious-jump detection. Ignore login/initial readings (oldMana 0/nil)
+  -- and level-ups (max mana changes) -- only a mid-session refill on a stable
+  -- pool is interesting. A potion we just drank is a legitimate refill.
+  if oldMana and oldMana > 0 and maxMana == oldMaxMana and maxMana > 1 then
+    local jumpPct = (mana - oldMana) * 100 / maxMana
+    if jumpPct >= manaJumpPct and (now - lastPotionDrinkAt) > potionGraceMs then
+      manaSuspiciousUntil = now + math.random(suspicionMinMs, suspicionMaxMs)
+      -- Client-side only (never sent to the server); operator awareness.
+      print("[HealBot] suspicious mana jump +" .. math.floor(jumpPct) ..
+        "% - holding mana casts ~" .. math.floor((manaSuspiciousUntil - now) / 1000) .. "s")
+    end
+  end
 end)
