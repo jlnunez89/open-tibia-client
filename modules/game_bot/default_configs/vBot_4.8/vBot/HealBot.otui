@@ -412,6 +412,10 @@ HealBotSettingsPanel < Panel
       id: MessageDelay
       text: Cooldown based on "Aaaah..." message
 
+    SettingCheckBox
+      id: ManaGuard
+      text: Delay mana spells on mana jumps
+
   VerticalSeparator
     anchors.top: prev.top
     anchors.bottom: prev.bottom

@@ -27,8 +27,15 @@ local manaReactMinMs = 1000
 local manaReactMaxMs = 5000
 local manaReactReadyAt = 0      -- armed reaction deadline for a pending mana cast
 
+-- Set from the active profile's "ManaGuard" option; gates both the suspicious
+-- jump hold and the human reaction delay. Applies to spells only, never items.
+local currentSettings -- active profile table, assigned by setActiveProfile()
+local manaGuardEnabled = function()
+  return currentSettings and currentSettings.ManaGuard
+end
+
 local manaConditionSuppressed = function()
-  return now < manaSuspiciousUntil
+  return manaGuardEnabled() and now < manaSuspiciousUntil
 end
 
 -- Evaluates a rule's trigger against the current state.
@@ -200,12 +207,18 @@ if not HealBotConfig[healPanelName] or not HealBotConfig[healPanelName][1] or #H
   }
 end
 
+-- Profiles saved before the mana-guard option existed default to enabled.
+for i = 1, 5 do
+  if HealBotConfig[healPanelName][i].ManaGuard == nil then
+    HealBotConfig[healPanelName][i].ManaGuard = true
+  end
+end
+
 if not HealBotConfig.currentHealBotProfile or HealBotConfig.currentHealBotProfile == 0 or HealBotConfig.currentHealBotProfile > 5 then 
   HealBotConfig.currentHealBotProfile = 1
 end
 
 -- finding correct table, manual unfortunately
-local currentSettings
 local setActiveProfile = function()
   local n = HealBotConfig.currentHealBotProfile
   currentSettings = HealBotConfig[healPanelName][n]
@@ -296,6 +309,13 @@ if rootWidget then
   healWindow.settings.list.MessageDelay.onClick = function(widget)
     currentSettings.MessageDelay = not currentSettings.MessageDelay
     healWindow.settings.list.MessageDelay:setChecked(currentSettings.MessageDelay)
+  end
+  healWindow.settings.list.ManaGuard.onClick = function(widget)
+    currentSettings.ManaGuard = not currentSettings.ManaGuard
+    healWindow.settings.list.ManaGuard:setChecked(currentSettings.ManaGuard)
+    manaSuspiciousUntil = 0
+    manaReactReadyAt = 0
+    standBySpells = false
   end
 
   -- Maps between stored rule values and the combo-box option labels, so we can
@@ -625,6 +645,9 @@ if rootWidget then
     healWindow.settings.list.Cooldown:setChecked(currentSettings.Cooldown)
     healWindow.settings.list.Delay:setChecked(currentSettings.Delay)
     healWindow.settings.list.MessageDelay:setChecked(currentSettings.MessageDelay)
+    healWindow.settings.list.ManaGuard:setChecked(currentSettings.ManaGuard)
+    manaSuspiciousUntil = 0
+    manaReactReadyAt = 0
     healWindow.settings.list.Interval:setChecked(currentSettings.Interval)
     healWindow.settings.list.Conditions:setChecked(currentSettings.Conditions)
   end
@@ -645,6 +668,7 @@ if rootWidget then
     currentSettings.Cooldown = true
     currentSettings.Delay = true
     currentSettings.MessageDelay = false
+    currentSettings.ManaGuard = true
     currentSettings.Interval = true
     currentSettings.Conditions = true
     currentSettings.name = "Profile #" .. HealBotConfig.currentHealBotProfile
@@ -740,7 +764,7 @@ macro(100, function()
     if entry.enabled and entry.cost < mana() and not (manaRule and manaConditionSuppressed()) then
       if canCast(entry.spell, not currentSettings.Conditions, not currentSettings.Cooldown) then
         if conditionMet(entry.origin, entry.sign, entry.value) then
-          if manaRule then
+          if manaRule and manaGuardEnabled() then
             -- Human reaction time: don't fire the exact instant mana ticks up
             -- to the trigger; wait a randomized 1-5s after the condition first
             -- holds. While waiting, fall through so a lower-priority HP
@@ -803,8 +827,7 @@ macro(100, function()
   -- ipairs (not pairs) so item rules respect their priority order.
   for _, entry in ipairs(currentSettings.itemTable) do
     local item = findItem(entry.item)
-    local manaRule = (entry.origin == "MP" or entry.origin == "MP%")
-    if (not currentSettings.Visible or item) and entry.enabled and not (manaRule and manaConditionSuppressed()) then
+    if (not currentSettings.Visible or item) and entry.enabled then
       if entry.origin == "HP%" then
         if entry.sign == "=" and hppercent() == entry.value then
           usewith(entry.item, player)
@@ -863,9 +886,7 @@ macro(100, function()
       end
     end
   end
-  if not manaConditionSuppressed() then
-    standByItems = true
-  end
+  standByItems = true
 end)
 UI.Separator()
 
@@ -881,7 +902,7 @@ onManaChange(function(player, mana, maxMana, oldMana, oldMaxMana)
   -- Suspicious-jump detection. Ignore login/initial readings (oldMana 0/nil)
   -- and level-ups (max mana changes) -- only a mid-session refill on a stable
   -- pool is interesting. A potion we just drank is a legitimate refill.
-  if oldMana and oldMana > 0 and maxMana == oldMaxMana and maxMana > 1 then
+  if manaGuardEnabled() and oldMana and oldMana > 0 and maxMana == oldMaxMana and maxMana > 1 then
     local jumpPct = (mana - oldMana) * 100 / maxMana
     if jumpPct >= manaJumpPct and (now - lastPotionDrinkAt) > potionGraceMs then
       manaSuspiciousUntil = now + math.random(suspicionMinMs, suspicionMaxMs)
