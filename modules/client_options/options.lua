@@ -9,6 +9,10 @@ local defaultOptions = {
   classicControl = not g_app.isMobile(),
   smartWalk = false,
   dash = false,
+  actionThrottle = true,
+  actionThrottleGap = 1000,
+  serverStepSync = true,
+  serverStepSyncPercent = 75,
   autoChaseOverride = true,
   showStatusMessagesInConsole = true,
   showEventMessagesInConsole = true,
@@ -336,6 +340,10 @@ function setOption(key, value, force)
     if modules.game_console and modules.game_console.consoleToggleChat:isChecked() ~= value then
       modules.game_console.consoleToggleChat:setChecked(value)
     end
+  elseif key == 'serverStepSyncPercent' then
+    generalPanel:getChildById('serverStepSyncPercentLabel'):setText(tr('Server step timing match: %s%%', value))
+  elseif key == 'actionThrottleGap' then
+    generalPanel:getChildById('actionThrottleGapLabel'):setText(tr('Minimum time between runes/spells: %s ms', value))
   elseif key == 'hotkeyDelay' then
     generalPanel:getChildById('hotkeyDelayLabel'):setText(tr('Hotkey delay: %s ms', value))  
   elseif key == 'walkFirstStepDelay' then

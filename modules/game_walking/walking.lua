@@ -14,7 +14,47 @@ lastTurnDirection = 0
 lastStop = 0
 lastManualWalk = 0
 autoFinishNextServerWalk = 0
+serverStepEnd = 0 -- earliest time the server will run our next manual step
 turnKeys = {}
+
+local diagonalDirs = { [NorthEast] = true, [SouthEast] = true, [SouthWest] = true, [NorthWest] = true }
+
+local function serverStepSyncEnabled()
+  return g_settings.getBoolean('serverStepSync', true) and not g_settings.getBoolean('dash', false)
+end
+
+local function serverBeatMs()
+  local ok, beat = pcall(function() return g_game.getServerBeat() end)
+  if ok and type(beat) == 'number' and beat > 0 then
+    return beat
+  end
+  return 200
+end
+
+-- The server takes waypoints * 1000 / speed ms per step, rounded up to a multiple
+-- of its beat, and triples the waypoints for diagonals. The client doesn't round
+-- (pre-9.00) and only doubles diagonals, so it asks for steps the server isn't
+-- ready to run; they wait in the server's action queue, where any rune or spell
+-- packet cancels them and snaps the character back.
+local function serverStepDuration(player, dir)
+  local base = player:getStepDuration(true, dir)
+  if not base or base < 1 then
+    return 0
+  end
+  local clientMs = player:getStepDuration(false, dir)
+  if diagonalDirs[dir] then
+    base = base * 3
+  end
+  local beat = serverBeatMs()
+  local serverMs = math.ceil(base / beat) * beat
+  -- The slider picks how much of the gap between the client's and the server's
+  -- step time we wait out (100 = the full server time).
+  local percent = math.max(0, math.min(100, g_settings.getNumber('serverStepSyncPercent', 75)))
+  if serverMs <= clientMs then
+    return serverMs
+  end
+  return math.floor(clientMs + (serverMs - clientMs) * percent / 100)
+end
 
 function init()
   connect(g_game, { onTeleport = onTeleport })
@@ -261,6 +301,7 @@ function onWalkFinish(player)
 end
 
 function onCancelWalk(player)
+  serverStepEnd = 0
   player:lockWalk(50)
 end
 
@@ -295,6 +336,22 @@ function walk(dir, ticks)
   end
 
   local ticksToNextWalk = player:getStepTicksLeft()
+  if serverStepSyncEnabled() then
+    local now = g_clock.millis()
+    if now < serverStepEnd then
+      -- Only queue a step that is about to become allowed, otherwise a released
+      -- key would still produce a late step.
+      if serverStepEnd - now < 250 then
+        nextWalkDir = dir
+        removeEvent(autoWalkEvent)
+        autoWalkEvent = scheduleEvent(function()
+          autoWalkEvent = nil
+          if nextWalkDir ~= nil then walk(nextWalkDir, 0) end
+        end, serverStepEnd - now)
+      end
+      return
+    end
+  end
   if not player:canWalk(dir) then -- canWalk return false when previous walk is not finished or not confirmed by server
     if dash then 
       ignoredCanWalk = true
@@ -361,6 +418,13 @@ function walk(dir, ticks)
     walkLock = walkLock + math.max(g_settings.getNumber('walkFirstStepDelay'), 100)
   end
   
+  local stepMs = serverStepSyncEnabled() and serverStepDuration(player, dir) or 0
+  -- Diagnostics: run `G.debugWalk = true` in the terminal to log each manual step.
+  if G.debugWalk then
+    g_logger.info(string.format("[walk] dir=%s speed=%s clientStep=%s serverStepSent=%s beat=%s (getServerBeat %s)", tostring(dir),
+      tostring(player:getSpeed()), tostring(player:getStepDuration(false, dir)), tostring(stepMs), tostring(serverBeatMs()),
+      pcall(function() return g_game.getServerBeat() end) and "available" or "missing"))
+  end
   nextWalkDir = nil
   removeEvent(autoWalkEvent)
   autoWalkEvent = nil
@@ -393,6 +457,7 @@ function walk(dir, ticks)
     autoFinishNextServerWalk = g_clock.millis() + 200
   end
   g_game.walk(dir, preWalked)  
+  serverStepEnd = g_clock.millis() + stepMs
   
   if not firstStep and lastWalkDir ~= dir then
     walkLock = g_clock.millis() + g_settings.getNumber('walkTurnDelay')    

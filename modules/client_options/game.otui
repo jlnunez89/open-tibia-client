@@ -31,6 +31,43 @@ OptionPanel
     !text: tr('Enable smart walking')
     !tooltip: tr('Will detect when to use diagonal step based on the\nkeys you are pressing')
 
+  OptionCheckBox
+    id: serverStepSync
+    !text: tr('Match server step timing')
+    !tooltip: tr('Waits for the server step time before sending the next manual step.\nPrevents steps from queueing on the server (and being cancelled by runes/spells).\nIgnored when fast walking (DASH) is enabled')
+
+  Label
+    id: serverStepSyncPercentLabel
+    margin-top: 10
+    !tooltip: tr('How much of the difference between the client and server step time to wait out.\n100%% = full server time (no queueing), lower = more responsive but some steps may queue')
+    @onSetup: |
+      local value = modules.client_options.getOption('serverStepSyncPercent')
+      self:setText(tr('Server step timing match: %s%%', value))
+
+  OptionScrollbar
+    id: serverStepSyncPercent
+    margin-top: 3
+    minimum: 0
+    maximum: 100
+
+  OptionCheckBox
+    id: actionThrottle
+    !text: tr('Limit rune and spell spam')
+    !tooltip: tr('Sends at most one rune/use-with or spell per interval and waits for the current step to finish.\nPrevents the server from queueing spammed actions and pulling you back while walking')
+
+  Label
+    id: actionThrottleGapLabel
+    margin-top: 10
+    @onSetup: |
+      local value = modules.client_options.getOption('actionThrottleGap')
+      self:setText(tr('Minimum time between runes/spells: %s ms', value))
+
+  OptionScrollbar
+    id: actionThrottleGap
+    margin-top: 3
+    minimum: 500
+    maximum: 3000
+
   Label
     id: hotkeyDelayLabel
     margin-top: 10
