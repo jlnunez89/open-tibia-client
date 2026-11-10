@@ -24,7 +24,7 @@ Panel
 
 local edit = setupUI([[
 Panel
-  height: 283
+  height: 303
 
   CheckBox
     id: consolidate
@@ -55,6 +55,16 @@ Panel
     text: Scavenge while attacking
     width: 220
     tooltip: When checked, items are picked up even while TargetBot is attacking a target. Useful for Paladins using thrown weapons (spears) that must be constantly retrieved.
+
+  CheckBox
+    id: moveTopItems
+    anchors.top: prev.bottom
+    anchors.left: parent.left
+    margin-top: 3
+    margin-left: 3
+    text: Move top items to reach target
+    width: 220
+    tooltip: When checked, items lying on top of a scavenge target are moved away one by one until the target can be picked up. Use on servers/versions that do not allow picking up items from beneath other items.
 
   Label
     anchors.top: prev.bottom
@@ -115,6 +125,7 @@ if not storage.scavenge then
     consolidate = false,
     dropFromScavenge = true,
     whileAttacking = false,
+    moveTopItems = false,
     skipTTL = 30,
     items = {},
     dropItems = {}
@@ -127,6 +138,7 @@ if config.skipTTL == nil then config.skipTTL = 30 end
 if config.consolidate == nil then config.consolidate = false end
 if config.dropFromScavenge == nil then config.dropFromScavenge = true end
 if config.whileAttacking == nil then config.whileAttacking = false end
+if config.moveTopItems == nil then config.moveTopItems = false end
 if config.dropItems == nil then config.dropItems = {} end
 
 local showEdit = false
@@ -178,6 +190,12 @@ edit.whileAttacking:setChecked(config.whileAttacking)
 edit.whileAttacking.onClick = function(widget)
   config.whileAttacking = not config.whileAttacking
   edit.whileAttacking:setChecked(config.whileAttacking)
+end
+
+edit.moveTopItems:setChecked(config.moveTopItems)
+edit.moveTopItems.onClick = function(widget)
+  config.moveTopItems = not config.moveTopItems
+  edit.moveTopItems:setChecked(config.moveTopItems)
 end
 
 UI.Container(function()
@@ -382,12 +400,50 @@ local function dropHeaviestPile(itemIds)
   return true
 end
 
+-- Move the top item of `tile` to a neighbouring tile (or under the player) so the
+-- item beneath it becomes reachable. Returns true if a move was issued.
+local function moveTopItemAway(tile, top, wantedSet)
+  local centerPos = tile:getPosition()
+  local playerPos = pos()
+
+  local offsets = {}
+  for dx = -1, 1 do
+    for dy = -1, 1 do
+      offsets[#offsets + 1] = { dx, dy }
+    end
+  end
+  for i = #offsets, 2, -1 do
+    local j = math.random(i)
+    offsets[i], offsets[j] = offsets[j], offsets[i]
+  end
+
+  for _, off in ipairs(offsets) do
+    local np = { x = playerPos.x + off[1], y = playerPos.y + off[2], z = playerPos.z }
+    if not (np.x == centerPos.x and np.y == centerPos.y) then
+      local nt = g_map.getTile(np)
+      local ownTile = (off[1] == 0 and off[2] == 0)
+      if nt and (ownTile or nt:isWalkable()) then
+        local ntop = nt:getTopMoveThing()
+        -- Don't bury another scavenge target
+        if not (ntop and ntop:isItem() and wantedSet[ntop:getId()]) then
+          g_game.move(top, np, top:getCount())
+          return true
+        end
+      end
+    end
+  end
+  return false
+end
+
 macro(500, function()
   if not config.enabled then return end
   if not config.whileAttacking and TargetBot and TargetBot.isActive() then return end
 
   local itemIds = properTable(config.items)
   if #itemIds == 0 then return end
+
+  local wantedSet = {}
+  for _, wantedId in ipairs(itemIds) do wantedSet[wantedId] = true end
 
   -- Resolve drop list: either the scavenge list or the separate drop list
   local dropIds = config.dropFromScavenge and itemIds or properTable(config.dropItems)
@@ -455,25 +511,46 @@ macro(500, function()
   -- Pick up adjacent items: lightest first (most likely to succeed, avoids "too heavy")
   if #adjacentCandidates > 0 and container then
     table.sort(adjacentCandidates, function(a, b) return a.weight < b.weight end)
-    local pick = adjacentCandidates[1]
-    local item = pick.item
-    local id = item:getId()
-    pendingPickup = itemKey(pick.tilePos, id)
-    -- Try stacking into an existing pile first
-    local targetPos = nil
-    if item:isStackable() then
-      for slot, cItem in ipairs(container:getItems()) do
-        if cItem:getId() == id and cItem:getCount() < 100 then
-          targetPos = container:getSlotPosition(slot - 1)
-          break
+    for _, pick in ipairs(adjacentCandidates) do
+      local item = pick.item
+      local id = item:getId()
+
+      if config.moveTopItems then
+        local tile = g_map.getTile(pick.tilePos)
+        local top = tile and tile:getTopMoveThing()
+        if top and top:isItem() and top:getId() ~= id then
+          if wantedSet[top:getId()] then
+            -- The covering item is a target itself: pick it up first
+            item = top
+            id = top:getId()
+          elseif top:isNotMoveable() then
+            goto nextPick  -- cannot be cleared, try another candidate
+          else
+            if moveTopItemAway(tile, top, wantedSet) then return end
+            goto nextPick
+          end
         end
       end
+
+      pendingPickup = itemKey(pick.tilePos, id)
+      -- Try stacking into an existing pile first
+      local targetPos = nil
+      if item:isStackable() then
+        for slot, cItem in ipairs(container:getItems()) do
+          if cItem:getId() == id and cItem:getCount() < 100 then
+            targetPos = container:getSlotPosition(slot - 1)
+            break
+          end
+        end
+      end
+      if not targetPos then
+        targetPos = container:getSlotPosition(container:getItemsCount())
+      end
+      g_game.move(item, targetPos, item:getCount())
+      do return end
+
+      ::nextPick::
     end
-    if not targetPos then
-      targetPos = container:getSlotPosition(container:getItemsCount())
-    end
-    g_game.move(item, targetPos, item:getCount())
-    return
   end
 
   -- Walk toward a distant item: nearby = lightest first, far = closest first
